@@ -23,15 +23,15 @@
   const teamColor = t => (t === 1 ? COLORS.team1 : COLORS.team2);
 
   function create(canvas) {
-    const ctx = canvas.getContext('2d');
-    let dpr = 1, cw = 0, ch = 0;
+    const ctx = canvas.getContext('2d', { alpha: false });   // opaque canvas = cheaper compositing
+    let dpr = 1, cw = 0, ch = 0, dprCap = 2;
     const cam = { x: 0, y: 0, scale: 1 };
     const particles = [], floaters = [];
     const reveal = new Map();   // id -> { hp, until }   (heart reveal after a hit)
     const flash = new Map();    // id -> until
 
     function resize() {
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      dpr = Math.min(window.devicePixelRatio || 1, dprCap);
       cw = innerWidth; ch = innerHeight;
       canvas.width = Math.round(cw * dpr);
       canvas.height = Math.round(ch * dpr);
@@ -219,7 +219,8 @@
     }
     function resetEffects() { particles.length = 0; floaters.length = 0; reveal.clear(); flash.clear(); first = true; }
 
-    return { draw, handleEvent, resetEffects, resize };
+    const lowerResolution = () => { if (dprCap > 1) { dprCap = Math.max(1, dprCap - 0.5); resize(); } };
+    return { draw, handleEvent, resetEffects, resize, lowerResolution, dprCap: () => Math.min(window.devicePixelRatio || 1, dprCap) };
   }
 
   root.CubeRender = { create, COLORS };

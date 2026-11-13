@@ -12,6 +12,7 @@ The owner (GitHub: `jareddarkus`) has granted **full permission** to create/modi
 The version shows bottom-right in the game (`js/version.js`, `window.CUBE_VERSION`). **Bump it on every update** and add a line here. Host and client must match (handshake refuses mismatches).
 
 CHANGELOG
+- 0.6.0 — controller remap (left stick = move + fall control, right stick = dash AND jump direction, R1 = jump/dash, Options = reset in practice; nothing else bound); jump can now be aimed (right stick only, ≤60° from the surface normal; keyboard jumps stay vertical); plain 0.25 s dash cooldown + 0.15 s press buffer (stops infinite ceiling-sticking; mashing works); other cubes count as surfaces for jump/dash reset; stronger air control; perf: render capped to ~60 draws/s, opaque canvas, no backdrop-filter, allocation-free contact scan, auto-lowers canvas resolution if fps<48, `F` shows fps/sim/draw ms. Inputs are now `rot, mx, my` (move) + `ax, ay, aim, jaim` (aim).
 - 0.5.0 — cubes bigger (56→80 px, reset zone/offsets scaled), coyote 0.32 s (bigger cube hops more while rolling), version label + handshake check
 - 0.4.0 — dash reset = middle of an edge touches a surface
 - 0.3.0 — air control (A/D steer, W float, S dive)
