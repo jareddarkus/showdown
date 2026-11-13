@@ -71,7 +71,7 @@
   const keys = new Set();
   let gpPrev = { jump: false, respawn: false };
   // rot/mx/my = moving (A/D roll + air steer, W/S float/dive); ax/ay/aim = the direction a jump or dash goes.
-  const input = { rot: 0, mx: 0, my: 0, aim: { x: 0, y: 0 }, aimActive: false };
+  const input = { rot: 0, mx: 0, my: 0, aim: { x: 0, y: 0 }, aimActive: false, face: false, faceG: false };
   const typing = e => e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName);
 
   function pressSpace() {
@@ -101,7 +101,7 @@
     let ax = mx, ay = my;
     const m = Math.hypot(ax, ay);
     if (m > 0) { ax /= m; ay /= m; }
-    let aimActive = m > 0;
+    let aimActive = m > 0, face = false, faceG = false;
 
     const pads = (navigator.getGamepads && navigator.getGamepads()) || [];
     let gp = null;
@@ -114,9 +114,9 @@
       if (ly !== 0) my = ly;
       // Left stick aims too (any direction you hold it); the right stick overrides it when it is pushed.
       const lm = Math.hypot(lx, ly);
-      if (lm > 0.35) { ax = lx / lm; ay = ly / lm; aimActive = true; }
+      if (lm > 0.35) { ax = lx / lm; ay = ly / lm; aimActive = true; face = true; faceG = Math.abs(ly / lm) > 0.7; }   // left stick turns the cube on the ground only when pushed up/down (sideways = roll)
       const rx = gp.axes[2] || 0, ry = gp.axes[3] || 0, rm = Math.hypot(rx, ry);
-      if (rm > 0.35) { ax = rx / rm; ay = ry / rm; aimActive = true; }
+      if (rm > 0.35) { ax = rx / rm; ay = ry / rm; aimActive = true; face = true; faceG = true; }   // right stick always turns it
       const r1 = !!(gp.buttons[5] && gp.buttons[5].pressed), opt = !!(gp.buttons[9] && gp.buttons[9].pressed);
       if (r1 && !gpPrev.jump) pressSpace();
       if (opt && !gpPrev.respawn) tryRespawn();
@@ -125,7 +125,7 @@
       padEl.textContent = '🎮 press any controller button to connect'; padEl.classList.remove('on');
     }
     input.rot = rot; input.mx = mx; input.my = my;
-    input.aim.x = ax; input.aim.y = ay; input.aimActive = aimActive;
+    input.aim.x = ax; input.aim.y = ay; input.aimActive = aimActive; input.face = face; input.faceG = faceG;
   }
 
   // ───────────────────────── Client: snapshots → interpolated view ─────────────────────────
@@ -168,7 +168,7 @@
   function sendClientInput(now, force = false) {
     if (!client) return;
     const r2 = v => +v.toFixed(2);
-    const msg = { rot: r2(input.rot), mx: r2(input.mx), my: r2(input.my), ax: r2(input.aim.x), ay: r2(input.aim.y), aim: input.aimActive };
+    const msg = { rot: r2(input.rot), mx: r2(input.mx), my: r2(input.my), ax: r2(input.aim.x), ay: r2(input.aim.y), aim: input.aimActive, face: input.face, faceG: input.faceG };
     const key = JSON.stringify(msg);
     if (force || key !== net.lastSent || now - net.lastSentAt > INPUT_HEARTBEAT) { client.sendInput(msg); net.lastSent = key; net.lastSentAt = now; }
   }
@@ -269,7 +269,7 @@
       const cv = clientView(now);
       view = cv ? { ...cv, me: net.me ? { id: myId, ...net.me } : null, score: net.score } : { fighters: [], crates: [], me: null, score: null };
     } else if (sim) {
-      sim.setInput(myId, { rot: input.rot, mx: input.mx, my: input.my, ax: input.aim.x, ay: input.aim.y, aim: input.aimActive });
+      sim.setInput(myId, { rot: input.rot, mx: input.mx, my: input.my, ax: input.aim.x, ay: input.aim.y, aim: input.aimActive, face: input.face, faceG: input.faceG });
       advanceSim(performance.now());
       view = simView(now);
     }

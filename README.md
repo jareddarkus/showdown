@@ -11,7 +11,7 @@ A minimalist, physics-based 2D arena game where you are a cube.
 | Roll on ground / steer in air | `A` / `D` | Left stick left / right |
 | Fall slower (`W`) / **fast fall** (`S` while descending, Smash-style: snaps to a faster fall until you land) | `W` / `S` | Left stick up / down |
 | **Jump** off anything you touch, or **dash** from the void (nothing touched) | `Space` | R1 |
-| Aim a jump or dash | `W` `A` `S` `D` | Either stick (right overrides left) |
+| Aim a jump or dash | `W` `A` `S` `D` | Either stick (right overrides left). With a stick your cube's **closest edge turns to face it** (in the air; on the ground only with the right stick, or the left stick pushed up/down) so edge-resets are easy to line up |
 | Reset (practice only) | `R` | Options |
 | Hide help / show FPS | `H` / `F` | |
 
