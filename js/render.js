@@ -146,7 +146,7 @@
             ctx.save(); rectPath(f.x, f.y, CFG.CUBE, CFG.CUBE, f.a);
             ctx.lineWidth = 2.2 * z; ctx.strokeStyle = COLORS.blue; ctx.lineJoin = 'miter'; ctx.stroke(); ctx.restore();
           }
-          if (view.me.dash && view.aim.active) {
+          if ((view.me.dash || view.me.jump) && view.aim.active) {
             ctx.save(); ctx.setLineDash([6 * z, 8 * z]);
             ctx.lineWidth = 2 * z; ctx.strokeStyle = 'rgba(30,136,255,.55)';
             ctx.beginPath();

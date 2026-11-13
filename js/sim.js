@@ -29,12 +29,12 @@
     AIR_DIVE: 0.36,                // px/step² of extra pull with S → fall noticeably faster
     DASH_COOLDOWN: 0.25,           // s after a dash starts before the next dash can start (plain timer, independent of resets and of button presses)
     PRESS_BUFFER: 0.15,            // s a Space press stays queued if it can't act yet (so mashing works; it never extends the cooldown)
-    JUMP_AIM_MAX_DEG: 60,          // a aimed jump (right stick) can lean at most this far from the surface normal
-    AIR_VMAX_Y: 16,                // px/step cap on fall speed while diving
-    COYOTE: 0.32,                  // s you can still jump after leaving a floor
-    RESET_LOCKOUT: 0.12,           // s after a jump/dash during which resets are ignored
     RESET_CENTER_HALF: 17,         // px either side of an edge's midpoint that count as "the middle of the edge" (≈42% of the edge)
     RESET_REACH: 8,                // px beyond the edge the surface may be and still count as touching (≈ up to 20° of tilt)
+    JUMP_AIM_MAX_DEG: 60,          // an aimed jump can lean at most this far from the surface normal you jump off
+    AIR_VMAX_Y: 16,                // px/step cap on fall speed while diving
+    COYOTE: 0.30,                  // s you can still jump after leaving a floor
+    RESET_LOCKOUT: 0.12,           // s after a jump/dash during which resets are ignored
     HEARTS: 3,
     HEART_REVEAL: 2.0,             // s a hit cube shows its hearts to everyone (renderer side)
     RESPAWN_DELAY: 2.5,
@@ -118,10 +118,10 @@
       const f = {
         id, name, team, bot, body, spawn: sp,
         hp: CFG.HEARTS, alive: true, respawnAt: -1, rs: 0,
-        canJump: true, canDash: true, sinceFloor: 0, jumpN: { x: 0, y: -1 },
+        canJump: true, canDash: true, sinceFloor: 0, sinceContact: 0, lastNs: [{ x: 0, y: -1 }],
         dashT: 0, dashDir: { x: 1, y: 0 }, dashHit: new Set(),
-        lockout: 0, flatT: -1, flatFloor: false, contacts: [],
-        inp: { rot: 0, mx: 0, my: 0, ax: 0, ay: 0, aim: false, jaim: false }, pendingSpace: false, pressT: 0, dashCd: 0,
+        lockout: 0, contacts: [],
+        inp: { rot: 0, mx: 0, my: 0, ax: 0, ay: 0, aim: false }, pendingSpace: false, pressT: 0, dashCd: 0,
         stats: { hits: 0, kills: 0, deaths: 0, resets: 0 },
       };
       body.fighter = f;
@@ -147,7 +147,7 @@
       Body.setAngularVelocity(f.body, 0);
       Object.assign(f, {
         hp: CFG.HEARTS, respawnAt: -1, alive: true,
-        canJump: true, canDash: true, dashT: 0, lockout: 0, dashCd: 0, pressT: 0, pendingSpace: false, flatT: -1, contacts: [],
+        canJump: true, canDash: true, dashT: 0, lockout: 0, dashCd: 0, pressT: 0, pendingSpace: false, sinceContact: 0, sinceFloor: 0, contacts: [],
       });
       f.dashHit.clear();
       f.rs++;
@@ -160,10 +160,9 @@
       const f = fighters.get(id);
       if (!f) return;
       const n = v => (Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0);   // hosts never trust clients
-      // rot/mx/my = moving (A/D roll + air steer, W/S float/dive). ax/ay = where a dash (or aimed jump) goes.
+      // rot/mx/my = moving (A/D roll + air steer, W/S float/dive). ax/ay/aim = the direction a jump or dash goes.
       f.inp.rot = n(inp.rot); f.inp.mx = n(inp.mx); f.inp.my = n(inp.my); f.inp.ax = n(inp.ax); f.inp.ay = n(inp.ay);
       f.inp.aim = !!inp.aim && (f.inp.ax !== 0 || f.inp.ay !== 0);
-      f.inp.jaim = f.inp.aim && !!inp.jaim;   // jump follows the aim only when the player aims with a dedicated stick
     };
     sim.pressSpace = id => { const f = fighters.get(id); if (f) { f.pendingSpace = true; f.pressT = CFG.PRESS_BUFFER; } };
 
@@ -172,18 +171,17 @@
     const sceneBodies = Composite.allBodies(world).slice();   // statics + crates (taken before any fighter is added)
     let scanCache = null;
     const scanList = () => scanCache || (scanCache = sceneBodies.concat([...fighters.values()].filter(x => x.alive).map(x => x.body)));
+    // Anything any part of the cube is touching (walls, floors, ceilings, crates, other cubes).
+    // `flush` = the MIDDLE of one of the cube's edges is touching it (not just a corner): that is what restores the dash.
     function scanContacts(f) {
       const b = f.body, out = [];
       for (const o of scanList()) {
         if (o === b || !Bounds.overlaps(b.bounds, o.bounds)) continue;
         const c = Collision.collides(b, o);
         if (!c) continue;
-        const corners = new Set();
-        for (const v of c.supports) if (v && v.body === b) corners.add(v.index);
         const n = { x: c.normal.x, y: c.normal.y };
         // Orient so the normal points from the other body toward this cube.
         if (n.x * (b.position.x - o.position.x) + n.y * (b.position.y - o.position.y) < 0) { n.x = -n.x; n.y = -n.y; }
-        // Reset contact = the MIDDLE of one of the cube's edges touches the surface (not a corner).
         // Probe three points across the middle of each edge, a few px outside it, against the other body.
         const a = b.angle, half = CFG.CUBE / 2;
         let flush = false;
@@ -194,26 +192,30 @@
             if (Vertices.contains(o.vertices, p)) { flush = true; break; }
           }
         }
-        out.push({ other: o, n, corners: corners.size, flush });
+        out.push({ other: o, n, flush });
       }
       return out;
     }
 
+    // Jump = launch off whatever you touched in the last COYOTE seconds. With an aim you go that way (leaning at most
+    // JUMP_AIM_MAX_DEG from the surface normal); without one you go straight off the surface.
     function doJump(f) {
-      const n = f.jumpN, v = f.body.velocity;
+      const aim = f.inp.aim ? currentAim(f) : null;
+      let n = f.lastNs[0];
+      for (const c of f.lastNs) {
+        if (aim ? c.x * aim.x + c.y * aim.y > n.x * aim.x + n.y * aim.y : c.y < n.y) n = c;   // pick the surface that best fits the aim (else the most "floor-like")
+      }
       let d = n;
-      if (f.inp.jaim) {
-        // Lean the jump toward the aim, but never more than JUMP_AIM_MAX_DEG away from the surface normal.
-        const m = Math.hypot(f.inp.ax, f.inp.ay) || 1, ux = f.inp.ax / m, uy = f.inp.ay / m;
-        let ang = Math.atan2(n.x * uy - n.y * ux, n.x * ux + n.y * uy);            // signed angle normal → aim
+      if (aim) {
+        let ang = Math.atan2(n.x * aim.y - n.y * aim.x, n.x * aim.x + n.y * aim.y);        // signed angle normal → aim
         const lim = CFG.JUMP_AIM_MAX_DEG * Math.PI / 180;
-        ang = Math.max(-lim, Math.min(lim, ang));
+        ang = Math.abs(ang) > Math.PI * 0.67 ? 0 : Math.max(-lim, Math.min(lim, ang));     // aiming into the surface = straight off it
         d = { x: n.x * Math.cos(ang) - n.y * Math.sin(ang), y: n.x * Math.sin(ang) + n.y * Math.cos(ang) };
       }
-      const vn = v.x * d.x + v.y * d.y;
-      const add = Math.max(CFG.JUMP_V - vn, CFG.JUMP_V * 0.6);
+      const v = f.body.velocity;
+      const add = Math.max(CFG.JUMP_V - (v.x * d.x + v.y * d.y), CFG.JUMP_V * 0.6);
       Body.setVelocity(f.body, { x: v.x + d.x * add, y: v.y + d.y * add });
-      f.canJump = false;
+      f.sinceContact = 99; f.canJump = false;
       f.lockout = CFG.RESET_LOCKOUT;
     }
 
@@ -246,6 +248,8 @@
       f.dashCd = Math.max(0, f.dashCd - STEP);
       f.pressT = Math.max(0, f.pressT - STEP);
       f.sinceFloor += STEP;
+      f.sinceContact += STEP;
+      f.canJump = f.sinceContact <= CFG.COYOTE;
 
       if (!f.bot) {
         // Rotation: build spin toward the target, damp lightly in the air.
@@ -258,9 +262,9 @@
         } else if (!grounded) {
           Body.setAngularVelocity(b, av * CFG.AIR_SPIN_DAMP);
         }
-        // Space: jump first, then dash.
+        // Space: touching something (recently) → jump off it; touching nothing → dash, i.e. a jump from the void.
         if (f.pendingSpace) {
-          if (f.canJump && f.sinceFloor <= CFG.COYOTE) { f.pendingSpace = false; doJump(f); }
+          if (f.canJump) { f.pendingSpace = false; doJump(f); }
           else if (f.canDash && f.dashCd <= 0) { f.pendingSpace = false; doDash(f); }
           else if (f.pressT <= 0) f.pendingSpace = false;     // nothing became possible in time: drop the press
         }
@@ -276,9 +280,6 @@
         else if (ay > 0 && vy < CFG.AIR_VMAX_Y) vy = Math.min(CFG.AIR_VMAX_Y, vy + CFG.AIR_DIVE * ay);
         if (vx !== v.x || vy !== v.y) Body.setVelocity(b, { x: vx, y: vy });
       }
-
-      // Losing the floor without jumping burns the jump, so the next press is a dash.
-      if (f.canJump && f.sinceFloor > CFG.COYOTE) f.canJump = false;
 
       // While dashing, ignore gravity so the tackle flies straight.
       if (f.dashT > 0) {
@@ -312,28 +313,22 @@
       const b = f.body;
       f.contacts = scanContacts(f);
 
-      let floorTouch = false, flat = null;
-      for (const c of f.contacts) {
-        const isFloor = c.n.y < -0.65;
-        if (isFloor) { floorTouch = true; f.jumpN = c.n; }          // other cubes count as surfaces too
-        if (c.flush) { if (!flat || isFloor) flat = { n: c.n, floor: isFloor }; }
-      }
-      if (floorTouch) {
-        f.sinceFloor = 0;
-        if (f.lockout <= 0) f.canJump = true;
-      }
-      if (flat) { f.flatT = time; f.flatFloor = flat.floor; }
-
-      // Dash reset: two corners on one surface at once (floors count as a normal landing).
-      if (f.lockout <= 0 && time - f.flatT < 0.05) {
-        if (!f.canDash) {
-          f.canDash = true;
-          if (!f.flatFloor) {
-            f.stats.resets++;
-            emit({ e: 'reset', id: f.id, x: r1(b.position.x), y: r1(b.position.y) });
+      // Touching anything with any part of the cube: you can jump off it for a moment.
+      // Touching it with the middle of an edge: your dash comes back too.
+      if (f.contacts.length) {
+        if (f.contacts.some(c => c.n.y < -0.65)) f.sinceFloor = 0;        // standing on something (air control / spin damping)
+        if (f.lockout <= 0) {
+          f.sinceContact = 0; f.canJump = true;
+          f.lastNs = f.contacts.map(c => c.n);
+          const flat = f.contacts.filter(c => c.flush);
+          if (flat.length && !f.canDash) {
+            f.canDash = true;
+            if (!flat.some(c => c.n.y < -0.65)) {                            // landings on a floor are quiet; everything else is a "reset"
+              f.stats.resets++;
+              emit({ e: 'reset', id: f.id, x: r1(b.position.x), y: r1(b.position.y) });
+            }
           }
         }
-        if (f.flatFloor) f.canJump = true;
       }
 
       // Dash hits: one per target per dash, enemy team only.

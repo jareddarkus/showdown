@@ -10,21 +10,21 @@ A minimalist, physics-based 2D arena game where you are a cube.
 | --- | --- | --- |
 | Roll on ground / steer in air | `A` / `D` | Left stick left / right |
 | Fall slower / faster in the air | `W` / `S` | Left stick up / down |
-| Jump, then press again to **dash** | `Space` | R1 |
-| Aim the dash (and lean a jump) | `W` `A` `S` `D` (dash only) | Right stick |
+| **Jump** off anything you touch, or **dash** from the void (nothing touched) | `Space` | R1 |
+| Aim a jump or dash | `W` `A` `S` `D` | Either stick (right overrides left) |
 | Reset (practice only) | `R` | Options |
 | Hide help / show FPS | `H` / `F` | |
 
-No aim input → the dash goes the way the white dot on your cube points. Dashes have a short 0.25 s cooldown; pressing early is buffered, so mashing works.
+No aim → a jump goes straight off the surface and a dash goes the way the white dot points. Jumping works within a short window (0.3 s) after touching any part of the cube to anything; a dash is a jump from the void. Dashes have a short 0.25 s cooldown; pressing early is buffered, so mashing works.
 
-No aim input → the dash goes the way the white dot on your cube points.
+No aim → a jump goes straight off the surface and a dash goes the way the white dot points. Jumping works within a short window (0.3 s) after touching any part of the cube to anything; a dash is a jump from the void.
 
 ## Mechanics
 
 - Everything collides: walls, floating blocks, pushable crates, other cubes.
 - Every cube has 3 hearts. A dash hits only while the **thin blue outline** is on your cube.
 - A hit reveals the target's hearts to everyone for 2 seconds. Your own hearts are always in the top-right corner.
-- **Dash reset:** touch a surface with the middle of one of your edges (about the centre 40%, roughly ±20° of tilt) and you get your dash back — walls, floors, ceilings, crates and other cubes all count. Corners alone don't count.
+- **Dash reset:** touch a surface with the middle of one of your edges (about the centre 40%, roughly ±20° of tilt) and you get your dash back — walls, floors, ceilings, crates and other cubes all count. Any other touch (a corner) still lets you jump but does not restore the dash. Corners alone don't count.
 
 ## Multiplayer (host / join, peer-to-peer)
 
