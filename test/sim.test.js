@@ -81,12 +81,12 @@ function airRun(inp) {
   return { t, x: f.body.position.x, vy: f.body.velocity.y };
 }
 ok('air control: W lands slower, S lands faster, A/D steer', () => {
-  const base = airRun({}), w = airRun({ ay: -1, aim: true }), s = airRun({ ay: 1, aim: true });
+  const base = airRun({}), w = airRun({ my: -1 }), s = airRun({ my: 1 });
   assert(w.t > base.t + 8, `W slower (${w.t} vs ${base.t})`);
   assert(s.t < base.t - 8, `S faster (${s.t} vs ${base.t})`);
-  const r = airRun({ ax: 1, rot: 1, aim: true }), l = airRun({ ax: -1, rot: -1, aim: true });
+  const r = airRun({ mx: 1, rot: 1 }), l = airRun({ mx: -1, rot: -1 });
   assert(r.x > base.x + 100 && l.x < base.x - 100, `steer (${l.x | 0} / ${base.x | 0} / ${r.x | 0})`);
-  assert(r.x - 250 < 300, 'air speed capped below ground roll');
+  assert(r.x - 250 < 420, 'air speed capped below ground roll');
 });
 
 // Dash reset = middle of an edge touches a surface; corners alone don't count.
@@ -108,5 +108,61 @@ ok('dash reset: flat edge and small tilts reset; corner-first (30°, 45°) does 
   assert.strictEqual(resetAt(-10), true, '-10°');
   assert.strictEqual(resetAt(30), false, '30°');
   assert.strictEqual(resetAt(45), false, '45°');
+});
+
+ok('aimed jump (right stick) leans the jump; keyboard-style jump stays vertical', () => {
+  const run = inp => {
+    const sim = S.create(); const f = sim.addFighter({ id: 1, name: 'a', team: 1, at: { x: 250, y: CFG.H - 60 } });
+    settle(sim, 60); sim.setInput(1, inp); sim.pressSpace(1); sim.step(); return f.body.velocity;
+  };
+  const plain = run({ ax: 1, ay: 0, aim: true });                    // keyboard: aim does not steer a jump
+  const aimed = run({ ax: 1, ay: 0, aim: true, jaim: true });        // right stick: it does
+  assert(Math.abs(plain.x) < 1 && plain.y < -8, 'plain jump is vertical');
+  assert(aimed.x > 8 && aimed.y < -4, `aimed jump leans right (${aimed.x.toFixed(1)}, ${aimed.y.toFixed(1)})`);
+  assert(aimed.y > -13 && Math.hypot(aimed.x, aimed.y) < 18, 'bounded');
+  const down = run({ ax: 0, ay: 1, aim: true, jaim: true });         // aiming into the floor is clamped to 60° off vertical
+  assert(down.y < -4, 'cannot jump into the floor');
+});
+
+ok('dash cooldown is a plain timer: mashing never speeds it up or stretches it', () => {
+  const M = require('../lib/matter.min.js');
+  const sim = S.create();
+  const f = sim.addFighter({ id: 1, name: 'a', team: 1, at: { x: 300, y: 160 } });
+  M.Body.setVelocity(f.body, { x: 0, y: 0 }); f.canJump = false; f.sinceFloor = 1;
+  sim.setInput(1, { ax: 0, ay: -1, aim: true });
+  const dashAt = [];
+  let was = false;
+  for (let i = 0; i < 90; i++) {
+    if (i % 3 === 0) sim.pressSpace(1);                 // hammer the button every 3 steps
+    sim.step();
+    const d = f.dashT > 0 && f.dashT > CFG.DASH_WINDOW - 0.02;   // a dash started this step
+    if (d && !was) dashAt.push(i);
+    was = d;
+  }
+  assert(dashAt.length >= 2, 'dashes again while mashing near the ceiling (' + dashAt + ')');
+  const gap = dashAt[1] - dashAt[0];
+  assert(gap >= CFG.DASH_COOLDOWN * 60 - 1 && gap <= CFG.DASH_COOLDOWN * 60 + 6, `gap ${gap} steps ≈ cooldown ${CFG.DASH_COOLDOWN * 60}`);
+});
+
+ok('a single early press is buffered and fires as soon as the dash is available', () => {
+  const sim = S.create();
+  const f = sim.addFighter({ id: 1, name: 'a', team: 1, at: { x: 1400, y: 300 } });
+  f.canJump = false; f.sinceFloor = 1; f.canDash = false;
+  sim.pressSpace(1); for (let i = 0; i < 5; i++) sim.step();
+  f.canDash = true; sim.pressSpace(1); sim.step();      // available again → fires on the next step
+  sim.step();
+  assert(f.dashT > 0, 'dashed');
+});
+
+ok('other players count as surfaces: landing on one gives jump + dash back', () => {
+  const M = require('../lib/matter.min.js');
+  const sim = S.create();
+  const low = sim.addFighter({ id: 2, name: 'b', team: 2, at: { x: 1400, y: CFG.H - CFG.CUBE / 2 - 2 } });
+  const top = sim.addFighter({ id: 1, name: 'a', team: 1, at: { x: 1400, y: CFG.H - CFG.CUBE * 1.5 - 30 } });
+  M.Body.setStatic(low.body, true);
+  top.canJump = false; top.canDash = false; top.sinceFloor = 1;
+  for (let i = 0; i < 90; i++) sim.step();
+  assert(top.canJump, 'can jump off another cube');
+  assert(top.canDash, 'dash restored by touching another cube');
 });
 console.log(n + ' tests passed');

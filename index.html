@@ -13,8 +13,8 @@
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:var(--ink); }
   canvas { display:block; width:100vw; height:100vh; touch-action:none; }
   #help { position:fixed; left:16px; top:14px; font-size:12px; line-height:1.6; color:var(--ink);
-    background:rgba(250,248,243,.82); border:1px solid #dcd8cf; padding:10px 14px; border-radius:8px;
-    backdrop-filter: blur(4px); max-width:320px; user-select:none; }
+    background:rgba(250,248,243,.94); border:1px solid #dcd8cf; padding:10px 14px; border-radius:8px;
+    max-width:320px; user-select:none; }
   #help b { font-weight:650; letter-spacing:.02em; }
   #help .title { font-size:13px; letter-spacing:.14em; text-transform:uppercase; margin-bottom:4px; }
   #help kbd { display:inline-block; min-width:20px; text-align:center; padding:0 5px; margin-right:2px;
@@ -23,10 +23,11 @@
   #help.hidden { display:none; }
   #pad { position:fixed; left:16px; bottom:14px; font-size:12px; color:var(--muted); user-select:none; }
   #pad.on { color:var(--ink); }
+  #fps { position:fixed; right:14px; bottom:30px; font:600 11px ui-monospace, monospace; color:var(--muted); user-select:none; }
   #ver { position:fixed; right:14px; bottom:12px; font:600 12px ui-monospace, monospace; color:var(--muted); user-select:none; }
   #menu { position:fixed; left:50%; top:12px; transform:translateX(-50%); display:flex; flex-wrap:wrap; gap:6px; align-items:center;
-    justify-content:center; background:rgba(250,248,243,.92); border:1px solid #dcd8cf; padding:8px 10px; border-radius:10px;
-    font-size:12px; max-width:min(560px, calc(100vw - 360px)); backdrop-filter: blur(4px); }
+    justify-content:center; background:rgba(250,248,243,.96); border:1px solid #dcd8cf; padding:8px 10px; border-radius:10px;
+    font-size:12px; max-width:min(560px, calc(100vw - 360px)); }
   #menu input { font:600 12px ui-sans-serif, system-ui, sans-serif; padding:5px 8px; border:1px solid #c9c4b8; border-radius:6px; background:#fff; color:var(--ink); width:110px; }
   #menu #code { width:76px; text-transform:uppercase; letter-spacing:.12em; text-align:center; }
   #menu button { font:600 12px ui-sans-serif, system-ui, sans-serif; padding:5px 11px; border:1px solid var(--ink); border-radius:6px; background:var(--ink); color:#fff; cursor:pointer; }
@@ -60,12 +61,13 @@
   <div><kbd>Space</kbd> jump · press again in the air to <b>dash</b></div>
   <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> aim the dash <span class="dim">(none = along the white dot)</span></div>
   <div><b>In the air:</b> <kbd>A</kbd><kbd>D</kbd> steer · <kbd>W</kbd> fall slower · <kbd>S</kbd> fall faster</div>
-  <div><b>Dash reset:</b> touch any surface with the <b>middle of one of your edges</b> (not a corner) to get your dash back</div>
+  <div><b>Dash reset:</b> touch any surface with the <b>middle of one of your edges</b> (not a corner) to get your dash back — other cubes count too</div>
   <div>Hit <b>enemy cubes</b> during the blue outline to take a heart (practice: the yellow bots)</div>
   <div><kbd>R</kbd> respawn (practice only) · <kbd>H</kbd> hide this</div>
-  <div class="dim" style="margin-top:4px">🎮 Controller: left stick aim · ✕ jump/dash · R1/L1 or right stick rotate · Options respawn</div>
+  <div class="dim" style="margin-top:4px">🎮 Controller: left stick move / fall control · right stick aim jump + dash · R1 jump/dash · Options reset (practice) · <kbd>F</kbd> fps</div>
 </div>
 <div id="ver"></div>
+<div id="fps" hidden></div>
 <div id="pad">🎮 press any controller button to connect</div>
 
 <script src="js/version.js"></script>

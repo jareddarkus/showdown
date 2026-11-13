@@ -23,10 +23,13 @@
     ROT_MAX: 0.17,                 // rad/step max spin
     ROT_ACCEL: 0.03,               // rad/step² spin build-up
     AIR_SPIN_DAMP: 0.994,
-    AIR_ACCEL_X: 0.16,             // px/step² sideways push with A/D (or stick) in the air
-    AIR_MAX_X: 4.2,                // px/step (~250 px/s) – a bit slower than rolling on the ground (~340 px/s)
-    AIR_FLOAT: 0.2,                // px/step² of lift with W  (gravity is ~0.44) → fall ≈ half speed
-    AIR_DIVE: 0.28,                // px/step² of extra pull with S → fall ≈ 1.6× faster
+    AIR_ACCEL_X: 0.34,             // px/step² sideways push with A/D (or left stick) in the air
+    AIR_MAX_X: 5.6,                // px/step (~340 px/s) – a bit slower than rolling on the ground (~415 px/s)
+    AIR_FLOAT: 0.26,               // px/step² of lift with W  (gravity is ~0.44) → fall noticeably slower
+    AIR_DIVE: 0.36,                // px/step² of extra pull with S → fall noticeably faster
+    DASH_COOLDOWN: 0.25,           // s after a dash starts before the next dash can start (plain timer, independent of resets and of button presses)
+    PRESS_BUFFER: 0.15,            // s a Space press stays queued if it can't act yet (so mashing works; it never extends the cooldown)
+    JUMP_AIM_MAX_DEG: 60,          // a aimed jump (right stick) can lean at most this far from the surface normal
     AIR_VMAX_Y: 16,                // px/step cap on fall speed while diving
     COYOTE: 0.32,                  // s you can still jump after leaving a floor
     RESET_LOCKOUT: 0.12,           // s after a jump/dash during which resets are ignored
@@ -118,12 +121,13 @@
         canJump: true, canDash: true, sinceFloor: 0, jumpN: { x: 0, y: -1 },
         dashT: 0, dashDir: { x: 1, y: 0 }, dashHit: new Set(),
         lockout: 0, flatT: -1, flatFloor: false, contacts: [],
-        inp: { rot: 0, ax: 0, ay: 0, aim: false }, pendingSpace: false,
+        inp: { rot: 0, mx: 0, my: 0, ax: 0, ay: 0, aim: false, jaim: false }, pendingSpace: false, pressT: 0, dashCd: 0,
         stats: { hits: 0, kills: 0, deaths: 0, resets: 0 },
       };
       body.fighter = f;
       Composite.add(world, body);
       fighters.set(id, f);
+      scanCache = null;
       return f;
     };
 
@@ -132,17 +136,18 @@
       if (!f) return;
       if (f.alive) Composite.remove(world, f.body);
       fighters.delete(id);
+      scanCache = null;
     };
 
     function respawn(f) {
-      if (!f.alive) Composite.add(world, f.body);
+      if (!f.alive) { Composite.add(world, f.body); scanCache = null; }
       Body.setPosition(f.body, { ...f.spawn });
       Body.setAngle(f.body, 0);
       Body.setVelocity(f.body, { x: 0, y: 0 });
       Body.setAngularVelocity(f.body, 0);
       Object.assign(f, {
         hp: CFG.HEARTS, respawnAt: -1, alive: true,
-        canJump: true, canDash: true, dashT: 0, lockout: 0, flatT: -1, contacts: [],
+        canJump: true, canDash: true, dashT: 0, lockout: 0, dashCd: 0, pressT: 0, pendingSpace: false, flatT: -1, contacts: [],
       });
       f.dashHit.clear();
       f.rs++;
@@ -155,15 +160,21 @@
       const f = fighters.get(id);
       if (!f) return;
       const n = v => (Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0);   // hosts never trust clients
-      f.inp.rot = n(inp.rot); f.inp.ax = n(inp.ax); f.inp.ay = n(inp.ay);
+      // rot/mx/my = moving (A/D roll + air steer, W/S float/dive). ax/ay = where a dash (or aimed jump) goes.
+      f.inp.rot = n(inp.rot); f.inp.mx = n(inp.mx); f.inp.my = n(inp.my); f.inp.ax = n(inp.ax); f.inp.ay = n(inp.ay);
       f.inp.aim = !!inp.aim && (f.inp.ax !== 0 || f.inp.ay !== 0);
+      f.inp.jaim = f.inp.aim && !!inp.jaim;   // jump follows the aim only when the player aims with a dedicated stick
     };
-    sim.pressSpace = id => { const f = fighters.get(id); if (f) f.pendingSpace = true; };
+    sim.pressSpace = id => { const f = fighters.get(id); if (f) { f.pendingSpace = true; f.pressT = CFG.PRESS_BUFFER; } };
 
     // ─────────────── simulation ───────────────
+    // Bodies a fighter can touch: static scenery + crates (fixed) + living fighters. Rebuilt only when that set changes.
+    const sceneBodies = Composite.allBodies(world).slice();   // statics + crates (taken before any fighter is added)
+    let scanCache = null;
+    const scanList = () => scanCache || (scanCache = sceneBodies.concat([...fighters.values()].filter(x => x.alive).map(x => x.body)));
     function scanContacts(f) {
       const b = f.body, out = [];
-      for (const o of Composite.allBodies(world)) {
+      for (const o of scanList()) {
         if (o === b || !Bounds.overlaps(b.bounds, o.bounds)) continue;
         const c = Collision.collides(b, o);
         if (!c) continue;
@@ -190,9 +201,18 @@
 
     function doJump(f) {
       const n = f.jumpN, v = f.body.velocity;
-      const vn = v.x * n.x + v.y * n.y;
+      let d = n;
+      if (f.inp.jaim) {
+        // Lean the jump toward the aim, but never more than JUMP_AIM_MAX_DEG away from the surface normal.
+        const m = Math.hypot(f.inp.ax, f.inp.ay) || 1, ux = f.inp.ax / m, uy = f.inp.ay / m;
+        let ang = Math.atan2(n.x * uy - n.y * ux, n.x * ux + n.y * uy);            // signed angle normal → aim
+        const lim = CFG.JUMP_AIM_MAX_DEG * Math.PI / 180;
+        ang = Math.max(-lim, Math.min(lim, ang));
+        d = { x: n.x * Math.cos(ang) - n.y * Math.sin(ang), y: n.x * Math.sin(ang) + n.y * Math.cos(ang) };
+      }
+      const vn = v.x * d.x + v.y * d.y;
       const add = Math.max(CFG.JUMP_V - vn, CFG.JUMP_V * 0.6);
-      Body.setVelocity(f.body, { x: v.x + n.x * add, y: v.y + n.y * add });
+      Body.setVelocity(f.body, { x: v.x + d.x * add, y: v.y + d.y * add });
       f.canJump = false;
       f.lockout = CFG.RESET_LOCKOUT;
     }
@@ -215,6 +235,7 @@
       f.dashHit.clear();
       f.canDash = false;
       f.lockout = CFG.RESET_LOCKOUT;
+      f.dashCd = CFG.DASH_COOLDOWN;
       emit({ e: 'dash', id: f.id, team: f.team, x: r1(f.body.position.x), y: r1(f.body.position.y) });
     }
 
@@ -222,6 +243,8 @@
       if (!f.alive) return;
       const b = f.body;
       f.lockout = Math.max(0, f.lockout - STEP);
+      f.dashCd = Math.max(0, f.dashCd - STEP);
+      f.pressT = Math.max(0, f.pressT - STEP);
       f.sinceFloor += STEP;
 
       if (!f.bot) {
@@ -237,16 +260,16 @@
         }
         // Space: jump first, then dash.
         if (f.pendingSpace) {
-          f.pendingSpace = false;
-          if (f.canJump && f.sinceFloor <= CFG.COYOTE) doJump(f);
-          else if (f.canDash) doDash(f);
+          if (f.canJump && f.sinceFloor <= CFG.COYOTE) { f.pendingSpace = false; doJump(f); }
+          else if (f.canDash && f.dashCd <= 0) { f.pendingSpace = false; doDash(f); }
+          else if (f.pressT <= 0) f.pendingSpace = false;     // nothing became possible in time: drop the press
         }
       }
       // Air control (not while dashing): A/D steer sideways, W floats down slower, S dives faster.
       if (f.dashT <= 0 && f.sinceFloor > 0.04 && !f.bot) {
         const v = b.velocity;
         let vx = v.x, vy = v.y;
-        const ax = f.inp.ax, ay = f.inp.ay;
+        const ax = f.inp.mx, ay = f.inp.my;
         if (ax > 0 && vx < CFG.AIR_MAX_X) vx = Math.min(CFG.AIR_MAX_X, vx + CFG.AIR_ACCEL_X * ax);
         else if (ax < 0 && vx > -CFG.AIR_MAX_X) vx = Math.max(-CFG.AIR_MAX_X, vx + CFG.AIR_ACCEL_X * ax);
         if (ay < 0) vy -= CFG.AIR_FLOAT * -ay * (vy > 0 ? 1 : 0);          // only slows a fall, never launches you up
@@ -276,6 +299,7 @@
         emit({ e: 'die', id: target.id, by: attacker.id, team: target.team, x: r1(p.x), y: r1(p.y) });
         Composite.remove(world, target.body);
         target.alive = false;
+        scanCache = null;
         target.respawnAt = time + CFG.RESPAWN_DELAY;
         target.stats.deaths++;
         attacker.stats.kills++;
@@ -291,8 +315,8 @@
       let floorTouch = false, flat = null;
       for (const c of f.contacts) {
         const isFloor = c.n.y < -0.65;
-        if (isFloor && !c.other.fighter) { floorTouch = true; f.jumpN = c.n; }
-        if (c.flush && !c.other.fighter) { if (!flat || isFloor) flat = { n: c.n, floor: isFloor }; }
+        if (isFloor) { floorTouch = true; f.jumpN = c.n; }          // other cubes count as surfaces too
+        if (c.flush) { if (!flat || isFloor) flat = { n: c.n, floor: isFloor }; }
       }
       if (floorTouch) {
         f.sinceFloor = 0;

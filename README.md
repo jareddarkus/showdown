@@ -8,11 +8,14 @@ A minimalist, physics-based 2D arena game where you are a cube.
 
 | Action | Keyboard | PS4 / gamepad |
 | --- | --- | --- |
-| Rotate (roll on ground, spin in air) | `A` / `D` | R1 / L1, right stick, or R2 / L2 |
-| Jump, then press again to **dash** | `Space` | ✕ |
-| Aim the dash | `W` `A` `S` `D` | Left stick (analog, any angle) or D-pad |
-| Respawn | `R` | Options |
-| Hide help | `H` | |
+| Roll on ground / steer in air | `A` / `D` | Left stick left / right |
+| Fall slower / faster in the air | `W` / `S` | Left stick up / down |
+| Jump, then press again to **dash** | `Space` | R1 |
+| Aim the dash (and lean a jump) | `W` `A` `S` `D` (dash only) | Right stick |
+| Reset (practice only) | `R` | Options |
+| Hide help / show FPS | `H` / `F` | |
+
+No aim input → the dash goes the way the white dot on your cube points. Dashes have a short 0.25 s cooldown; pressing early is buffered, so mashing works.
 
 No aim input → the dash goes the way the white dot on your cube points.
 
@@ -21,7 +24,7 @@ No aim input → the dash goes the way the white dot on your cube points.
 - Everything collides: walls, floating blocks, pushable crates, other cubes.
 - Every cube has 3 hearts. A dash hits only while the **thin blue outline** is on your cube.
 - A hit reveals the target's hearts to everyone for 2 seconds. Your own hearts are always in the top-right corner.
-- **Dash reset:** touch a surface with the middle of one of your edges (about the centre 40%, roughly ±20° of tilt) and you get your dash back. Corners alone don't count.
+- **Dash reset:** touch a surface with the middle of one of your edges (about the centre 40%, roughly ±20° of tilt) and you get your dash back — walls, floors, ceilings, crates and other cubes all count. Corners alone don't count.
 
 ## Multiplayer (host / join, peer-to-peer)
 

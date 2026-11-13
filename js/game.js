@@ -71,7 +71,8 @@
   // ───────────────────────── Input ─────────────────────────
   const keys = new Set();
   let gpPrev = { jump: false, respawn: false };
-  const input = { rot: 0, aim: { x: 0, y: 0 }, aimActive: false, usingPad: false };
+  // rot/mx/my = moving (A/D roll + air steer, W/S float/dive); ax/ay/aim = where a dash goes; jaim = the jump follows it too.
+  const input = { rot: 0, mx: 0, my: 0, aim: { x: 0, y: 0 }, aimActive: false, jaim: false };
   const typing = e => e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName);
 
   function pressSpace() {
@@ -87,42 +88,42 @@
     if (e.code === 'Space') { pressSpace(); e.preventDefault(); }
     if (e.code === 'KeyR') tryRespawn();
     if (e.code === 'KeyH') $('help').classList.toggle('hidden');
+    if (e.code === 'KeyF') perf.show = !perf.show;
   });
   addEventListener('keyup', e => keys.delete(e.code));
   addEventListener('blur', () => keys.clear());
 
+  // Controller (Standard mapping, PS4-friendly): left stick = move / fall control, right stick = dash + jump direction,
+  // R1 = jump then dash, Options = reset (practice only). Nothing else is bound.
   const padEl = $('pad');
   function pollInput() {
     const k = c => keys.has(c) ? 1 : 0;
-    let rot = k('KeyD') - k('KeyA');
-    let ax = k('KeyD') - k('KeyA'), ay = k('KeyS') - k('KeyW');
-    let mag = Math.hypot(ax, ay);
-    if (mag > 0) { ax /= mag; ay /= mag; }
-    let aimActive = mag > 0, usingPad = false;
+    let rot = k('KeyD') - k('KeyA'), mx = rot, my = k('KeyS') - k('KeyW');
+    let ax = mx, ay = my;
+    const m = Math.hypot(ax, ay);
+    if (m > 0) { ax /= m; ay /= m; }
+    let aimActive = m > 0, jaim = false;
 
-    // Gamepad (Standard mapping: PS4 → ✕=0, L1=4, R1=5, L2=6, R2=7, Options=9, D-pad=12..15)
     const pads = (navigator.getGamepads && navigator.getGamepads()) || [];
     let gp = null;
     for (const p of pads) { if (p && p.connected) { gp = p; break; } }
     if (gp) {
       padEl.textContent = '🎮 controller connected'; padEl.classList.add('on');
-      const dz = v => (Math.abs(v) < 0.18 ? 0 : v);
-      const b = i => (gp.buttons[i] ? gp.buttons[i].value : 0);
-      let px = gp.axes[0] || 0, py = gp.axes[1] || 0;
-      if (Math.hypot(px, py) < 0.3) { px = 0; py = 0; }
-      if (b(14)) px -= 1; if (b(15)) px += 1; if (b(12)) py -= 1; if (b(13)) py += 1;
-      const pm = Math.hypot(px, py);
-      if (pm > 0.3) { ax = px / pm; ay = py / pm; aimActive = true; usingPad = true; }
-      const prot = dz(gp.axes[2] || 0) + (b(5) - b(4)) + (b(7) - b(6));
-      if (prot !== 0) { rot = Math.max(-1, Math.min(1, prot)); usingPad = true; }
-      const jump = b(0) > 0.5, resp = b(9) > 0.5;
-      if (jump && !gpPrev.jump) pressSpace();
-      if (resp && !gpPrev.respawn) tryRespawn();
-      gpPrev = { jump, respawn: resp };
+      const dz = v => (Math.abs(v) < 0.2 ? 0 : v);
+      const lx = dz(gp.axes[0] || 0), ly = dz(gp.axes[1] || 0);
+      if (lx !== 0) { rot = mx = lx; }
+      if (ly !== 0) my = ly;
+      const rx = gp.axes[2] || 0, ry = gp.axes[3] || 0, rm = Math.hypot(rx, ry);
+      if (rm > 0.35) { ax = rx / rm; ay = ry / rm; aimActive = true; jaim = true; }
+      const r1 = !!(gp.buttons[5] && gp.buttons[5].pressed), opt = !!(gp.buttons[9] && gp.buttons[9].pressed);
+      if (r1 && !gpPrev.jump) pressSpace();
+      if (opt && !gpPrev.respawn) tryRespawn();
+      gpPrev = { jump: r1, respawn: opt };
     } else {
       padEl.textContent = '🎮 press any controller button to connect'; padEl.classList.remove('on');
     }
-    input.rot = rot; input.aim.x = ax; input.aim.y = ay; input.aimActive = aimActive; input.usingPad = usingPad;
+    input.rot = rot; input.mx = mx; input.my = my;
+    input.aim.x = ax; input.aim.y = ay; input.aimActive = aimActive; input.jaim = jaim;
   }
 
   // ───────────────────────── Client: snapshots → interpolated view ─────────────────────────
@@ -163,7 +164,8 @@
 
   function sendClientInput(now) {
     if (!client) return;
-    const msg = { rot: +input.rot.toFixed(2), ax: +input.aim.x.toFixed(2), ay: +input.aim.y.toFixed(2), aim: input.aimActive };
+    const r2 = v => +v.toFixed(2);
+    const msg = { rot: r2(input.rot), mx: r2(input.mx), my: r2(input.my), ax: r2(input.aim.x), ay: r2(input.aim.y), aim: input.aimActive, jaim: input.jaim };
     const key = JSON.stringify(msg);
     if (key !== net.lastSent || now - net.lastSentAt > INPUT_HEARTBEAT) { client.sendInput(msg); net.lastSent = key; net.lastSentAt = now; }
   }
@@ -219,9 +221,14 @@
   };
 
   // ───────────────────────── Main loop ─────────────────────────
+  // perf: press F in game to show fps / sim ms / draw ms. If the framerate stays low the renderer lowers its resolution.
+  const perf = { show: false, frames: 0, t0: performance.now(), fps: 0, simMs: 0, drawMs: 0, slow: 0 };
   let last = performance.now(), acc = 0;
   function frame(nowMs) {
+    // 120/144 Hz displays: draw every other refresh so we never spend more than ~60 draws/s (the sim is 60 Hz anyway).
+    if (nowMs - last < 15) { requestAnimationFrame(frame); return; }
     const dt = Math.min(0.1, (nowMs - last) / 1000); last = nowMs;
+    const tSim = performance.now();
     const now = nowMs / 1000;
     pollInput();
     let view;
@@ -231,7 +238,7 @@
       const cv = clientView(now);
       view = cv ? { ...cv, me: net.me ? { id: myId, ...net.me } : null, score: net.score } : { fighters: [], crates: [], me: null, score: null };
     } else if (sim) {
-      sim.setInput(myId, { rot: input.rot, ax: input.aim.x, ay: input.aim.y, aim: input.aimActive });
+      sim.setInput(myId, { rot: input.rot, mx: input.mx, my: input.my, ax: input.aim.x, ay: input.aim.y, aim: input.aimActive, jaim: input.jaim });
       acc += dt * 1000;
       let n = 0;
       while (acc >= STEP_MS && n < 5) {
@@ -248,11 +255,25 @@
       if (mode === 'solo') for (const ev of sim.drainEvents()) renderer.handleEvent(ev, myId, now);
       view = simView(now);
     }
+    perf.simMs += (performance.now() - tSim - perf.simMs) * 0.1;
     view = view || { fighters: [], crates: [], me: null, score: null };
     view.now = now;
     view.aim = { active: input.aimActive, x: input.aim.x, y: input.aim.y };
+    const tDraw = performance.now();
     renderer.draw(withVelocity(view, dt), dt);
+    perf.drawMs += (performance.now() - tDraw - perf.drawMs) * 0.1;
+    updatePerf(nowMs);
     requestAnimationFrame(frame);
+  }
+
+  function updatePerf(nowMs) {
+    perf.frames++;
+    if (nowMs - perf.t0 < 1000) return;
+    perf.fps = Math.round(perf.frames * 1000 / (nowMs - perf.t0)); perf.frames = 0; perf.t0 = nowMs;
+    if (perf.show) $('fps').textContent = `${perf.fps} fps · sim ${perf.simMs.toFixed(1)} ms · draw ${perf.drawMs.toFixed(1)} ms · res ${renderer.dprCap().toFixed(1)}×`;
+    $('fps').hidden = !perf.show;
+    // Safety net: a slow GPU/browser gets a lower canvas resolution instead of a stuttering game.
+    if (document.visibilityState === 'visible' && perf.fps < 48) { if (++perf.slow >= 3) { renderer.lowerResolution(); perf.slow = 0; } } else perf.slow = 0;
   }
 
   startSolo();
@@ -262,7 +283,7 @@
 
   // Debug / test hook
   window.__game = {
-    CFG, input, keys,
+    CFG, input, keys, perf,
     get sim() { return sim; }, get mode() { return mode; }, get myId() { return myId; },
     get host() { return host; }, get client() { return client; }, get net() { return net; },
     get roster() { return roster; }, get time() { return sim ? sim.time : 0; },

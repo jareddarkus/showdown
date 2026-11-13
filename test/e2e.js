@@ -32,8 +32,28 @@ const until = async (page, fn, msg, ms = 8000) => { const t = Date.now(); while 
   };
   const host = await mk('host'), cli = await mk('client');
 
+  await host.addInitScript(() => {   // mock a standard-mapping pad (PS4-like) we can drive from the test
+    window.__pad = { connected: true, axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
+    navigator.getGamepads = () => [window.__pad];
+  });
   await host.goto(URL_);
   ok(await host.evaluate(() => __game.mode === 'solo' && __game.sim.fighters.size === 4), 'solo practice boots with player + 3 bots');
+  // ── controller mapping (solo practice) ──
+  const pad = (axes, btn) => host.evaluate(([a, b]) => { __pad.axes = a; __pad.buttons.forEach((x, i) => { x.pressed = x.value = (i === b ? 1 : 0); }); }, [axes, btn]);
+  await sleep(800);
+  const px0 = await host.evaluate(() => __game.sim.fighters.get(0).body.position.x);
+  await pad([1, 0, 0, 0], -1); await sleep(1000); await pad([0, 0, 0, 0], -1);
+  ok(await host.evaluate(x => __game.sim.fighters.get(0).body.position.x > x + 100, px0), 'controller: left stick right rolls the cube right');
+  await sleep(1200);
+  await pad([0, 0, 0, 0], 0); await sleep(150); await pad([0, 0, 0, 0], -1);
+  ok(await host.evaluate(() => __game.sim.fighters.get(0).canJump === true), 'controller: ✕ (button 0) is not bound to jump');
+  const v1 = await host.evaluate(async () => { const f = __game.sim.fighters.get(0); __pad.axes = [0, 0, 1, 0]; await new Promise(r => setTimeout(r, 100)); __pad.buttons[5].pressed = __pad.buttons[5].value = 1; await new Promise(r => setTimeout(r, 120)); __pad.buttons[5].pressed = __pad.buttons[5].value = 0; __pad.axes = [0, 0, 0, 0]; return { vx: f.body.velocity.x, vy: f.body.velocity.y, canJump: f.canJump }; });
+  ok(!v1.canJump && v1.vx > 4 && v1.vy < 0, `controller: R1 + right stick right = jump leaning right (vx ${v1.vx.toFixed(1)}, vy ${v1.vy.toFixed(1)})`);
+  await sleep(300);
+  const dashUp = await host.evaluate(async () => { const f = __game.sim.fighters.get(0); __pad.axes = [0, 0, 0, -1]; await new Promise(r => setTimeout(r, 100)); __pad.buttons[5].pressed = __pad.buttons[5].value = 1; await new Promise(r => setTimeout(r, 100)); __pad.buttons[5].pressed = __pad.buttons[5].value = 0; await new Promise(r => setTimeout(r, 100)); __pad.buttons[5].pressed = __pad.buttons[5].value = 1; await new Promise(r => setTimeout(r, 60)); const d = { dashY: f.dashDir.y, dashT: f.dashT }; __pad.buttons[5].pressed = __pad.buttons[5].value = 0; __pad.axes = [0, 0, 0, 0]; return d; });
+  ok(dashUp.dashY < -0.9, 'controller: R1 again in the air dashes where the right stick points (up)');
+  await host.evaluate(() => __game.startSolo());
+
   await host.fill('#name', 'Hosty'); await host.click('#btnHost');
   await until(host, () => __game.mode === 'host' && __game.host && __game.host.code, 'host gets a room code');
   const code = await host.evaluate(() => __game.host.code);
