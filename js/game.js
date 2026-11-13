@@ -102,6 +102,12 @@
     padEl.textContent = on ? '🎮 controller connected' : '🎮 press any controller button to connect';
     padEl.classList.toggle('on', on);
   };
+  // Analog sticks: a small deadzone that is rescaled, so the response starts at ZERO and grows smoothly with how far you push
+  // (pointing up and a little left = a slow turn left; more left = a faster turn).
+  const SDZ = 0.12;
+  const sdz = v => { const a = Math.abs(v); return a < SDZ ? 0 : Math.sign(v) * (a - SDZ) / (1 - SDZ); };
+  const strongest = (cur, v) => (Math.abs(v) > Math.abs(cur) ? v : cur);
+
   function pollInput() {
     const k = c => keys.has(c) ? 1 : 0;
     let rot = k('KeyD') - k('KeyA'), mx = rot, my = k('KeyS') - k('KeyW');
@@ -110,20 +116,30 @@
     if (m > 0) { ax /= m; ay /= m; }
     let aimActive = m > 0;
 
+    // Left stick (controller) and the touch joystick behave identically: move / steer / fall control, aim, and TURN the cube
+    // in proportion to the sideways part of the push. The right stick aims too and also turns the cube; it overrides the aim.
+    const leftStick = (x, y) => {
+      const sx = sdz(x), sy = sdz(y);
+      rot = strongest(rot, sx); mx = strongest(mx, sx); my = strongest(my, sy);
+      const lm = Math.hypot(x, y);
+      if (lm > 0.35) { ax = x / lm; ay = y / lm; aimActive = true; }
+    };
+    const rightStick = (x, y) => {
+      rot = strongest(rot, sdz(x));
+      const rm = Math.hypot(x, y);
+      if (rm > 0.35) { ax = x / rm; ay = y / rm; aimActive = true; }
+    };
+
+    const T = CubeTouch.state;
+    if (T.active) leftStick(T.x, T.y);
+
     const pads = (navigator.getGamepads && navigator.getGamepads()) || [];
     let gp = null;
     for (const p of pads) { if (p && p.connected) { gp = p; break; } }
     if (gp) {
       showPad(true);
-      const dz = v => (Math.abs(v) < 0.2 ? 0 : v);
-      const lx = dz(gp.axes[0] || 0), ly = dz(gp.axes[1] || 0);
-      if (lx !== 0) { rot = mx = lx; }
-      if (ly !== 0) my = ly;
-      // Left stick aims too (any direction you hold it); the right stick overrides it when it is pushed.
-      const lm = Math.hypot(lx, ly);
-      if (lm > 0.35) { ax = lx / lm; ay = ly / lm; aimActive = true; }
-      const rx = gp.axes[2] || 0, ry = gp.axes[3] || 0, rm = Math.hypot(rx, ry);
-      if (rm > 0.35) { ax = rx / rm; ay = ry / rm; aimActive = true; }
+      leftStick(gp.axes[0] || 0, gp.axes[1] || 0);
+      rightStick(gp.axes[2] || 0, gp.axes[3] || 0);
       const r1 = !!(gp.buttons[5] && gp.buttons[5].pressed), opt = !!(gp.buttons[9] && gp.buttons[9].pressed);
       if (r1 && !gpPrev.jump) pressSpace();
       if (opt && !gpPrev.respawn) tryRespawn();
@@ -131,9 +147,11 @@
     } else {
       showPad(false);
     }
-    input.rot = rot; input.mx = mx; input.my = my;
+    input.rot = Math.max(-1, Math.min(1, rot)); input.mx = mx; input.my = my;
     input.aim.x = ax; input.aim.y = ay; input.aimActive = aimActive;
   }
+
+  CubeTouch.onPress = pressSpace;                       // the on-screen button = Space / R1
 
   // ───────────────────────── Client: snapshots → interpolated view ─────────────────────────
   const nowSec = () => performance.now() / 1000;

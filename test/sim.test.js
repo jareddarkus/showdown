@@ -80,6 +80,18 @@ function airRun(inp) {
   for (; t < 400; t++) { sim.step(); if (f.sinceFloor < 0.01) break; }
   return { t, x: f.body.position.x, vy: f.body.velocity.y };
 }
+ok('analog turning is proportional: a gentle push spins/steers gently, a full push fully', () => {
+  const roll = rot => { const sim = S.create(); const f = sim.addFighter({ id: 1, name: 'a', team: 1, at: { x: 200, y: 1048 } });
+    for (let i = 0; i < 60; i++) sim.step(); const x0 = f.body.position.x; sim.setInput(1, { rot, mx: rot }); for (let i = 0; i < 70; i++) sim.step(); return f.body.position.x - x0; };
+  const lo = roll(0.25), mid = roll(0.5), hi = roll(1);
+  assert(lo > 20 && lo < mid && mid < hi, `ground roll grows with the push (${lo | 0} < ${mid | 0} < ${hi | 0})`);
+  assert(lo < hi * 0.55, 'a quarter push is well under half a full push');
+  const drift = mx => { const sim = S.create(); const f = sim.addFighter({ id: 1, name: 'a', team: 1, at: { x: 60, y: 200 } });
+    sim.setInput(1, { mx, rot: mx }); for (let i = 0; i < 600; i++) { sim.step(); if (f.sinceContact < 0.01) break; } return f.body.position.x - 60; };
+  const d1 = drift(0.3), d2 = drift(1);
+  assert(d1 > 15 && d1 < d2 * 0.6, `air steering scales with the stick (${d1 | 0} vs ${d2 | 0})`);
+});
+
 ok('fast fall (Smash-style): S while descending snaps to FAST_FALL_V and holds until landing; W floats; normal fall is capped', () => {
   const sim = S.create();
   const f = sim.addFighter({ id: 1, name: 'a', team: 1, at: { x: 250, y: 100 } });

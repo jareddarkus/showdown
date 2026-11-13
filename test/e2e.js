@@ -52,6 +52,14 @@ const until = async (page, fn, msg, ms = 8000) => { const t = Date.now(); while 
   await sleep(300);
   const dashUp = await host.evaluate(async () => { const f = __game.sim.fighters.get(0); __pad.axes = [0, 0, 0, -1]; await new Promise(r => setTimeout(r, 100)); __pad.buttons[5].pressed = __pad.buttons[5].value = 1; await new Promise(r => setTimeout(r, 100)); __pad.buttons[5].pressed = __pad.buttons[5].value = 0; await new Promise(r => setTimeout(r, 100)); __pad.buttons[5].pressed = __pad.buttons[5].value = 1; await new Promise(r => setTimeout(r, 60)); const d = { dashY: f.dashDir.y, dashT: f.dashT }; __pad.buttons[5].pressed = __pad.buttons[5].value = 0; __pad.axes = [0, 0, 0, 0]; return d; });
   ok(dashUp.dashY < -0.9, 'controller: R1 again in the air dashes where the right stick points (up)');
+  // Pointing up with a little left on either stick = a slow, proportional turn left (and more push = faster).
+  const rotFor = async axes => { await pad(axes, -1); await sleep(120); return host.evaluate(() => ({ rot: __game.input.rot, ax: __game.input.aim.x, ay: __game.input.aim.y })); };
+  const s1 = await rotFor([-0.3, -1, 0, 0]), s2 = await rotFor([-0.6, -1, 0, 0]), s3 = await rotFor([0, 0, 0.3, -1]), s4 = await rotFor([0.05, -1, 0, 0]);
+  ok(s1.rot < -0.1 && s1.rot > -0.35 && s2.rot < s1.rot && s2.rot > -0.7, `left stick up + a little left turns left slowly, more = faster (${s1.rot.toFixed(2)} → ${s2.rot.toFixed(2)})`);
+  ok(s1.ay < -0.9, 'and still aims up');
+  ok(s3.rot > 0.1 && s3.rot < 0.35 && s3.ay < -0.9, `right stick up + a little right turns right slowly and aims up (${s3.rot.toFixed(2)})`);
+  ok(s4.rot === 0, 'a tiny wobble (inside the deadzone) does nothing');
+  await pad([0, 0, 0, 0], -1);
   await host.evaluate(() => __game.startSolo());
 
   await sleep(1500);
@@ -59,6 +67,37 @@ const until = async (page, fn, msg, ms = 8000) => { const t = Date.now(); while 
   await host.keyboard.press('KeyF'); await sleep(1200);
   ok(/Hz.*sim.*draw.*res/.test(await host.textContent('#fps')), 'F shows detailed performance info');
   await host.keyboard.press('KeyF');
+
+  ok(await host.evaluate(() => !document.getElementById('touch') && !CubeTouch.enabled), 'desktop: no touch controls are shown');
+
+  // ── phone: faint joystick (left) + plain button (right) ──
+  {
+    const mctx = await browser.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
+    const ph = await mctx.newPage(); ph.on('pageerror', e => errors.push('phone: ' + e.message));
+    await ph.goto(URL_ + '&touch=1'); await sleep(1200);
+    ok(await ph.evaluate(() => !!document.getElementById('tbtn') && !!document.getElementById('tbase')), 'phone: joystick and button are present');
+    const op = await ph.evaluate(() => ({ base: getComputedStyle(document.getElementById('tbase')).borderTopColor, btn: getComputedStyle(document.getElementById('tbtn')).borderTopColor }));
+    ok(op.base === op.btn && /rgba/.test(op.base), 'phone: joystick and button share the same translucent style (' + op.base + ')');
+    ok(await ph.evaluate(() => getComputedStyle(document.getElementById('help')).display === 'none'), 'phone: help panel is hidden to keep the screen clear');
+    const pev = (sel, type, id, x, y) => ph.evaluate(([sel, type, id, x, y]) => document.querySelector(sel).dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', clientX: x, clientY: y, bubbles: true, cancelable: true })), [sel, type, id, x, y]);
+    const x0 = await ph.evaluate(() => __game.sim.fighters.get(0).body.position.x);
+    await pev('#tzone', 'pointerdown', 7, 120, 250); await pev('#tzone', 'pointermove', 7, 200, 250);   // push right
+    await sleep(1000);
+    ok(await ph.evaluate(() => __game.input.mx > 0.9), 'phone: dragging the joystick right = full right input');
+    ok(await ph.evaluate(x => __game.sim.fighters.get(0).body.position.x > x + 100, x0), 'phone: the cube rolls right');
+    await pev('#tzone', 'pointermove', 7, 103, 192);                                  // up (-58 px) and a little left (-17 px)
+    await sleep(150);
+    const tj = await ph.evaluate(() => ({ rot: __game.input.rot, ay: __game.input.aim.y }));
+    ok(tj.rot < -0.1 && tj.rot > -0.35 && tj.ay < -0.9, `phone: joystick up + a little left turns left slowly (${tj.rot.toFixed(2)}), same as a controller stick`);
+    await pev('#tzone', 'pointerup', 7, 200, 250); await sleep(100);
+    ok(await ph.evaluate(() => __game.input.mx === 0 && !CubeTouch.state.active), 'phone: releasing the joystick stops input');
+    await sleep(1200);
+    await pev('#tbtn', 'pointerdown', 8, 760, 320); await pev('#tbtn', 'pointerup', 8, 760, 320); await sleep(150);
+    ok(await ph.evaluate(() => __game.sim.fighters.get(0).canJump === false), 'phone: the button jumps');
+    await pev('#tbtn', 'pointerdown', 9, 760, 320); await pev('#tbtn', 'pointerup', 9, 760, 320); await sleep(100);
+    ok(await ph.evaluate(() => __game.sim.fighters.get(0).dashT > 0 || __game.sim.fighters.get(0).canDash === false), 'phone: pressing again in the air dashes');
+    await mctx.close();
+  }
 
   await host.fill('#name', 'Hosty'); await host.click('#btnHost');
   await until(host, () => __game.mode === 'host' && __game.host && __game.host.code, 'host gets a room code');
