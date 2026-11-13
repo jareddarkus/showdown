@@ -70,4 +70,22 @@ ok('hostile inputs are clamped', () => {
   sim.setInput(1, { rot: 1e9, ax: NaN, ay: Infinity, aim: true });
   assert(f.inp.rot === 1 && f.inp.ax === 0 && f.inp.ay === 0 && f.inp.aim === false);
 });
+
+// Drop a cube from the same height with different air input; compare how long the fall takes / sideways drift.
+function airRun(inp) {
+  const sim = S.create();
+  const f = sim.addFighter({ id: 1, name: 'a', team: 1, at: { x: 250, y: 200 } });   // clear of platforms
+  sim.setInput(1, inp);
+  let t = 0;
+  for (; t < 400; t++) { sim.step(); if (f.sinceFloor < 0.01) break; }
+  return { t, x: f.body.position.x, vy: f.body.velocity.y };
+}
+ok('air control: W lands slower, S lands faster, A/D steer', () => {
+  const base = airRun({}), w = airRun({ ay: -1, aim: true }), s = airRun({ ay: 1, aim: true });
+  assert(w.t > base.t + 8, `W slower (${w.t} vs ${base.t})`);
+  assert(s.t < base.t - 8, `S faster (${s.t} vs ${base.t})`);
+  const r = airRun({ ax: 1, rot: 1, aim: true }), l = airRun({ ax: -1, rot: -1, aim: true });
+  assert(r.x > base.x + 100 && l.x < base.x - 100, `steer (${l.x | 0} / ${base.x | 0} / ${r.x | 0})`);
+  assert(r.x - 250 < 300, 'air speed capped below ground roll');
+});
 console.log(n + ' tests passed');

@@ -23,6 +23,11 @@
     ROT_MAX: 0.17,                 // rad/step max spin
     ROT_ACCEL: 0.03,               // rad/step² spin build-up
     AIR_SPIN_DAMP: 0.994,
+    AIR_ACCEL_X: 0.16,             // px/step² sideways push with A/D (or stick) in the air
+    AIR_MAX_X: 4.2,                // px/step (~250 px/s) – a bit slower than rolling on the ground (~340 px/s)
+    AIR_FLOAT: 0.2,                // px/step² of lift with W  (gravity is ~0.44) → fall ≈ half speed
+    AIR_DIVE: 0.28,                // px/step² of extra pull with S → fall ≈ 1.6× faster
+    AIR_VMAX_Y: 16,                // px/step cap on fall speed while diving
     COYOTE: 0.17,                  // s you can still jump after leaving a floor
     RESET_LOCKOUT: 0.12,           // s after a jump/dash during which resets are ignored
     FLUSH_DEG: 8,                  // face-to-surface tolerance for counting as "two corners"
@@ -231,6 +236,18 @@
           else if (f.canDash) doDash(f);
         }
       }
+      // Air control (not while dashing): A/D steer sideways, W floats down slower, S dives faster.
+      if (f.dashT <= 0 && f.sinceFloor > 0.04 && !f.bot) {
+        const v = b.velocity;
+        let vx = v.x, vy = v.y;
+        const ax = f.inp.ax, ay = f.inp.ay;
+        if (ax > 0 && vx < CFG.AIR_MAX_X) vx = Math.min(CFG.AIR_MAX_X, vx + CFG.AIR_ACCEL_X * ax);
+        else if (ax < 0 && vx > -CFG.AIR_MAX_X) vx = Math.max(-CFG.AIR_MAX_X, vx + CFG.AIR_ACCEL_X * ax);
+        if (ay < 0) vy -= CFG.AIR_FLOAT * -ay * (vy > 0 ? 1 : 0);          // only slows a fall, never launches you up
+        else if (ay > 0 && vy < CFG.AIR_VMAX_Y) vy = Math.min(CFG.AIR_VMAX_Y, vy + CFG.AIR_DIVE * ay);
+        if (vx !== v.x || vy !== v.y) Body.setVelocity(b, { x: vx, y: vy });
+      }
+
       // Losing the floor without jumping burns the jump, so the next press is a dash.
       if (f.canJump && f.sinceFloor > CFG.COYOTE) f.canJump = false;
 
