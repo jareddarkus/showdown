@@ -272,10 +272,10 @@
       }
       // Air control (not while dashing). A/D steer sideways.
       if (f.dashT <= 0 && f.sinceFloor > 0.04 && !f.bot) {
-        const v = b.velocity, ax = f.inp.mx;
+        const v = b.velocity, ax = f.inp.mx, top = ax * CFG.AIR_MAX_X;      // a gentle push steers gently: top speed scales with the stick
         let vx = v.x;
-        if (ax > 0 && vx < CFG.AIR_MAX_X) vx = Math.min(CFG.AIR_MAX_X, vx + CFG.AIR_ACCEL_X * ax);
-        else if (ax < 0 && vx > -CFG.AIR_MAX_X) vx = Math.max(-CFG.AIR_MAX_X, vx + CFG.AIR_ACCEL_X * ax);
+        if (ax > 0 && vx < top) vx = Math.min(top, vx + CFG.AIR_ACCEL_X * ax);
+        else if (ax < 0 && vx > top) vx = Math.max(top, vx + CFG.AIR_ACCEL_X * ax);
         if (vx !== v.x) Body.setVelocity(b, { x: vx, y: v.y });
       }
 

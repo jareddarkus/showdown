@@ -14,11 +14,11 @@
   'use strict';
   const { CFG, LAYOUT } = root.CubeSim;
   const { W, H } = CFG;
+  // Minimal look: white background, everything in the world very light grey, flat fills (no borders), square corners.
   const COLORS = {
-    bg: '#dcd8cf', arena: '#f7f5ef', grid: '#ebe7dd', solid: '#23232b',
-    box: '#c9c3b6', boxEdge: '#8f897b',
-    team1: '#ff6a4d', team1Edge: '#c9472f', team2: '#f2b632', team2Edge: '#b9840f',
-    blue: '#1e88ff', ink: '#23232b',
+    bg: '#ffffff', solid: '#e0e0e5', box: '#d1d1d8',
+    team1: '#ff6a4d', team2: '#f2b632',
+    blue: '#1e88ff', ink: '#23232b', hitFlash: '#2b2b33', spark: '#a9a9b4',
   };
   const teamColor = t => (t === 1 ? COLORS.team1 : COLORS.team2);
 
@@ -58,7 +58,7 @@
         case 'hit':
           reveal.set(ev.id, { hp: ev.hp, until: now + CFG.HEART_REVEAL });
           flash.set(ev.id, now + 0.2);
-          burst(ev.x, ev.y, '#ffffff', 10, 4);
+          burst(ev.x, ev.y, COLORS.spark, 10, 4);
           burst(ev.x, ev.y, teamColor(ev.team), 10, 5);
           if (ev.id !== myId) floater('−1', ev.x, ev.y - CFG.CUBE / 2 - 24, '#d9342b');
           break;
@@ -81,11 +81,11 @@
       else tx = (W - viewW) / 2;
       cam.x = snap ? tx : cam.x + (tx - cam.x) * 0.12;
     }
+    // A heart made of straight lines (no curves).
+    const HEART = [[0, 1], [-1.3, -0.15], [-1.3, -0.7], [-0.65, -1.1], [0, -0.6], [0.65, -1.1], [1.3, -0.7], [1.3, -0.15]];
     function heartPath(x, y, s) {
       ctx.beginPath();
-      ctx.moveTo(x, y + s * 0.9);
-      ctx.bezierCurveTo(x - s * 1.5, y - s * 0.2, x - s * 0.7, y - s * 1.1, x, y - s * 0.35);
-      ctx.bezierCurveTo(x + s * 0.7, y - s * 1.1, x + s * 1.5, y - s * 0.2, x, y + s * 0.9);
+      HEART.forEach(([px, py], i) => { if (i) ctx.lineTo(x + px * s * 0.95, y + py * s * 0.95); else ctx.moveTo(x + px * s * 0.95, y + py * s * 0.95); });
       ctx.closePath();
     }
     function drawHearts(x, y, hp, s, alpha = 1) {
@@ -109,16 +109,46 @@
       ctx.closePath();
     };
 
+    // ── 4-layer parallax of big, flat, barely-there shapes (squares / bars / triangles / diamonds). Far layers are bigger,
+    // lighter and move least; near layers are smaller, a touch darker and move most. Static shapes, only the camera moves them.
+    const LAYERS = [
+      { f: 0.04, col: '#f9f9fb', n: 5, min: 320, max: 560, tile: 3800, seed: 11 },
+      { f: 0.09, col: '#f7f7fa', n: 6, min: 200, max: 340, tile: 3200, seed: 23 },
+      { f: 0.16, col: '#f4f4f8', n: 7, min: 120, max: 220, tile: 2800, seed: 37 },
+      { f: 0.26, col: '#f1f1f5', n: 8, min: 64, max: 130, tile: 2400, seed: 51 },
+    ].map(L => {
+      let a = L.seed * 2654435761 >>> 0;                       // mulberry32: well-spread pseudo-random numbers, same every load
+      const rnd = () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+      L.shapes = Array.from({ length: L.n }, (_, i) => ({
+        x: (i + rnd() * 0.8) / L.n * L.tile, y: 0.05 + rnd() * 0.9, size: L.min + rnd() * (L.max - L.min),
+        kind: Math.floor(rnd() * 4), rot: (rnd() - 0.5) * 0.5,
+      }));
+      return L;
+    });
+    function drawShape(kind, x, y, s, rot) {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(kind === 3 ? Math.PI / 4 : rot);
+      ctx.beginPath();
+      if (kind === 0 || kind === 3) ctx.rect(-s / 2, -s / 2, s, s);            // square / diamond
+      else if (kind === 1) ctx.rect(-s * 0.9, -s * 0.22, s * 1.8, s * 0.44);   // bar
+      else { ctx.moveTo(0, -s * 0.55); ctx.lineTo(s * 0.6, s * 0.45); ctx.lineTo(-s * 0.6, s * 0.45); ctx.closePath(); }   // triangle
+      ctx.fill(); ctx.restore();
+    }
+    function drawParallax() {
+      for (const L of LAYERS) {
+        ctx.fillStyle = L.col;
+        const tile = L.tile * cam.scale, off = cam.x * L.f * cam.scale;
+        for (const sh of L.shapes) {
+          const size = sh.size * cam.scale;
+          let X = (((sh.x * cam.scale - off) % tile) + tile) % tile - tile;      // start one tile to the left, repeat across the screen
+          for (; X < cw + size; X += tile) drawShape(sh.kind, X, sh.y * ch, size, sh.rot);
+        }
+      }
+    }
+
     function drawWorld(view) {
       const z = 1 / cam.scale;
-      ctx.fillStyle = COLORS.arena; ctx.fillRect(0, 0, W, H);
-      ctx.strokeStyle = COLORS.grid; ctx.lineWidth = 2 * z;
-      ctx.beginPath();
-      for (let x = 0; x <= W; x += 100) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
-      for (let y = 0; y <= H; y += 100) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
-      ctx.stroke();
-      ctx.fillStyle = 'rgba(255,106,77,.10)'; ctx.fillRect(0, 0, 520, H);
-      ctx.fillStyle = 'rgba(242,182,50,.12)'; ctx.fillRect(W - 520, 0, 520, H);
+      ctx.fillStyle = 'rgba(255,106,77,.045)'; ctx.fillRect(0, 0, 520, H);
+      ctx.fillStyle = 'rgba(242,182,50,.055)'; ctx.fillRect(W - 520, 0, 520, H);
 
       ctx.fillStyle = COLORS.solid;
       for (const r of LAYOUT.shell) { rectPath(r[0], r[1], r[2], r[3]); ctx.fill(); }
@@ -127,17 +157,14 @@
         const d = LAYOUT.crates[i];
         rectPath(c[0], c[1], d[2], d[3], c[2]);
         ctx.fillStyle = COLORS.box; ctx.fill();
-        ctx.lineWidth = 2.5 * z; ctx.strokeStyle = COLORS.boxEdge; ctx.stroke();
       });
 
       for (const f of view.fighters) {
         if (!f.alive) continue;
         const isMe = view.me && f.id === view.me.id;
         const fl = flash.get(f.id) || 0;
-        ctx.lineJoin = 'round';
         rectPath(f.x, f.y, CFG.CUBE, CFG.CUBE, f.a);
-        ctx.fillStyle = fl > view.now ? '#ffffff' : teamColor(f.team); ctx.fill();
-        ctx.lineWidth = 3 * z; ctx.strokeStyle = f.team === 1 ? COLORS.team1Edge : COLORS.team2Edge; ctx.stroke();
+        ctx.fillStyle = fl > view.now ? COLORS.hitFlash : teamColor(f.team); ctx.fill();      // flat fill, no border
 
         if (isMe) {
           // Dash window: thin blue border, only you see it.
@@ -179,8 +206,8 @@
     function drawHUD(view) {
       const me = view.me;
       if (me) {
-        ctx.fillStyle = 'rgba(250,248,243,.96)';
-        ctx.beginPath(); ctx.roundRect(cw - 172, 12, 160, 76, 10); ctx.fill();
+        ctx.fillStyle = '#f2f2f5';
+        ctx.fillRect(cw - 172, 12, 160, 76);
         drawHearts(cw - 92, 38, me.hp, 11);
         const pip = (label, on, x) => {
           ctx.fillStyle = on ? COLORS.ink : 'rgba(35,35,43,.18)'; ctx.fillRect(x, 66, 14, 14);
@@ -211,6 +238,8 @@
       updateCamera(view, first); first = false;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.fillStyle = COLORS.bg; ctx.fillRect(0, 0, cw, ch);
+      ctx.setTransform(dpr * cam.scale, 0, 0, dpr * cam.scale, -cam.x * cam.scale * dpr, -cam.y * cam.scale * dpr);
+      drawParallax();
       ctx.setTransform(dpr * cam.scale, 0, 0, dpr * cam.scale, -cam.x * cam.scale * dpr, -cam.y * cam.scale * dpr);
       drawWorld(view);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
