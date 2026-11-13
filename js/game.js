@@ -95,6 +95,13 @@
   // Controller (Standard mapping, PS4-friendly): left stick = move / fall control, right stick = dash + jump direction,
   // R1 = jump then dash, Options = reset (practice only). Nothing else is bound.
   const padEl = $('pad');
+  let padShown = null;   // only touch the DOM when the controller state changes (a DOM write every frame costs Chrome a style/layout pass)
+  const showPad = on => {
+    if (padShown === on) return;
+    padShown = on;
+    padEl.textContent = on ? '🎮 controller connected' : '🎮 press any controller button to connect';
+    padEl.classList.toggle('on', on);
+  };
   function pollInput() {
     const k = c => keys.has(c) ? 1 : 0;
     let rot = k('KeyD') - k('KeyA'), mx = rot, my = k('KeyS') - k('KeyW');
@@ -107,7 +114,7 @@
     let gp = null;
     for (const p of pads) { if (p && p.connected) { gp = p; break; } }
     if (gp) {
-      padEl.textContent = '🎮 controller connected'; padEl.classList.add('on');
+      showPad(true);
       const dz = v => (Math.abs(v) < 0.2 ? 0 : v);
       const lx = dz(gp.axes[0] || 0), ly = dz(gp.axes[1] || 0);
       if (lx !== 0) { rot = mx = lx; }
@@ -122,7 +129,7 @@
       if (opt && !gpPrev.respawn) tryRespawn();
       gpPrev = { jump: r1, respawn: opt };
     } else {
-      padEl.textContent = '🎮 press any controller button to connect'; padEl.classList.remove('on');
+      showPad(false);
     }
     input.rot = rot; input.mx = mx; input.my = my;
     input.aim.x = ax; input.aim.y = ay; input.aimActive = aimActive;
@@ -182,11 +189,18 @@
     return view;
   }
 
+  // Draw between the last two fixed sim steps (alpha = how far we are into the next step). Without this, steps land at
+  // slightly uneven moments relative to screen refreshes and motion visibly stutters even at a full 60 fps.
   function simView(now) {
-    const fighters = [...sim.fighters.values()].map(f => ({ id: f.id, x: f.body.position.x, y: f.body.position.y, a: f.body.angle, alive: f.alive, team: f.team, name: f.name }));
+    const al = Math.max(0, Math.min(1, simAcc / STEP_MS));
+    const fighters = [...sim.fighters.values()].map(f => {
+      const p = f.body.position;
+      const ok = f.px !== undefined && f.alive && f.pAlive && f.prs === f.rs && Math.abs(p.x - f.px) < 150 && Math.abs(p.y - f.py) < 150;
+      return { id: f.id, x: ok ? f.px + (p.x - f.px) * al : p.x, y: ok ? f.py + (p.y - f.py) * al : p.y, a: ok ? f.pa + (f.body.angle - f.pa) * al : f.body.angle, alive: f.alive, team: f.team, name: f.name };
+    });
     const me = sim.fighters.get(myId);
     return {
-      fighters, crates: sim.crateBodies.map(b => [b.position.x, b.position.y, b.angle]),
+      fighters, crates: sim.crateBodies.map(b => (b.px === undefined ? [b.position.x, b.position.y, b.angle] : [b.px + (b.position.x - b.px) * al, b.py + (b.position.y - b.py) * al, b.pa + (b.angle - b.pa) * al])),
       me: me ? { id: myId, ...sim.privateState(myId) } : null,
       score: mode === 'host' ? [sim.score[1], sim.score[2]] : null,
     };
@@ -253,11 +267,26 @@
   } catch (e) { /* no worker: frame() below still advances the sim */ }
 
   // perf: press F in game to show fps / sim ms / draw ms. If the framerate stays low the renderer lowers its resolution.
-  const perf = { show: false, frames: 0, t0: performance.now(), fps: 0, simMs: 0, drawMs: 0, slow: 0 };
-  let last = performance.now();
+  const perf = { show: false, frames: 0, t0: performance.now(), tStart: performance.now(), fps: 0, simMs: 0, drawMs: 0, slow: 0, hz: 0, worst: 0, gpu: null };
+  let last = performance.now(), lastRaf = 0, rafN = 0;
+  const rafDeltas = [];
+  let skip = 1;     // draw every `skip`-th refresh: 1 on 60 Hz screens, 2 on 120 Hz, ...
   function frame(nowMs) {
-    // 120/144 Hz displays: draw every other refresh so we never spend more than ~60 draws/s.
-    if (nowMs - last < 15) { requestAnimationFrame(frame); return; }
+    // Measure the screen's refresh rate (median rAF interval) instead of guessing from single frame gaps, which on a 60 Hz
+    // screen could drop every other frame whenever one frame arrived a little early.
+    if (lastRaf) {
+      const d = nowMs - lastRaf;
+      if (d > 2 && d < 40) rafDeltas.push(d);
+      if (rafDeltas.length >= 40) {
+        rafDeltas.sort((a, b) => a - b);
+        const med = rafDeltas[rafDeltas.length >> 1];
+        perf.hz = Math.round(1000 / med);
+        skip = med < 12.5 ? Math.max(1, Math.round(16.67 / med)) : 1;
+        rafDeltas.length = 0;
+      }
+    }
+    lastRaf = nowMs;
+    if (skip > 1 && (rafN++ % skip) !== 0) { requestAnimationFrame(frame); return; }
     const dt = Math.min(0.1, (nowMs - last) / 1000); last = nowMs;
     const now = nowMs / 1000;
     pollInput();
@@ -280,18 +309,33 @@
     const tDraw = performance.now();
     renderer.draw(withVelocity(view, dt), dt);
     perf.drawMs += (performance.now() - tDraw - perf.drawMs) * 0.1;
+    perf.worst = Math.max(perf.worst, dt * 1000);
+    const rec = window.__frameRec;
+    if (rec) { const mf = view.fighters.find(f => view.me && f.id === view.me.id); if (mf) rec.push([nowMs, mf.x, mf.y]); }
     updatePerf(nowMs);
     requestAnimationFrame(frame);
+  }
+
+  function gpuName() {
+    try {
+      const gl = document.createElement('canvas').getContext('webgl'), e = gl && gl.getExtension('WEBGL_debug_renderer_info');
+      return e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : 'gpu unknown';
+    } catch (err) { return 'gpu unknown'; }
   }
 
   function updatePerf(nowMs) {
     perf.frames++;
     if (nowMs - perf.t0 < 1000) return;
     perf.fps = Math.round(perf.frames * 1000 / (nowMs - perf.t0)); perf.frames = 0; perf.t0 = nowMs;
-    if (perf.show) $('fps').textContent = `${perf.fps} fps · sim ${perf.simMs.toFixed(1)} ms · draw ${perf.drawMs.toFixed(1)} ms · res ${renderer.dprCap().toFixed(1)}×`;
-    $('fps').hidden = !perf.show;
-    // Safety net: a slow GPU/browser gets a lower canvas resolution instead of a stuttering game.
-    if (document.visibilityState === 'visible' && perf.fps < 48) { if (++perf.slow >= 3) { renderer.lowerResolution(); perf.slow = 0; } } else perf.slow = 0;
+    let txt = perf.fps + ' fps';
+    if (perf.show) {   // press F for details (useful to report a problem)
+      if (perf.gpu === null) perf.gpu = gpuName();
+      txt = `${perf.fps} fps · screen ${perf.hz} Hz · sim ${perf.simMs.toFixed(1)} ms · draw ${perf.drawMs.toFixed(1)} ms · worst frame ${perf.worst.toFixed(0)} ms · res ${renderer.dprCap().toFixed(2)}× · ${perf.gpu}`;
+    }
+    perf.worst = 0;
+    if ($('fps').textContent !== txt) $('fps').textContent = txt;
+    // Safety net: a slow GPU/browser gets a lower canvas resolution instead of a stuttering game (after a 4 s warm-up).
+    if (document.visibilityState === 'visible' && nowMs - perf.tStart > 4000 && perf.fps < 54) { if (++perf.slow >= 2) { renderer.lowerResolution(); perf.slow = 0; } } else perf.slow = 0;
   }
 
   startSolo();

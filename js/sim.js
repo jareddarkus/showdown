@@ -362,6 +362,9 @@
     }
 
     sim.step = () => {
+      // Remember last step's pose so renderers can interpolate between fixed steps (smooth motion at any refresh rate).
+      for (const f of fighters.values()) { const p = f.body.position; f.px = p.x; f.py = p.y; f.pa = f.body.angle; f.prs = f.rs; f.pAlive = f.alive; }
+      for (const b of crateBodies) { b.px = b.position.x; b.py = b.position.y; b.pa = b.angle; }
       for (const f of fighters.values()) preStep(f);
       Engine.update(engine, STEP_MS);
       time += STEP;

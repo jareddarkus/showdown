@@ -54,6 +54,12 @@ const until = async (page, fn, msg, ms = 8000) => { const t = Date.now(); while 
   ok(dashUp.dashY < -0.9, 'controller: R1 again in the air dashes where the right stick points (up)');
   await host.evaluate(() => __game.startSolo());
 
+  await sleep(1500);
+  ok(/^\d+ fps$/.test(await host.textContent('#fps')) && await host.isVisible('#fps'), 'fps counter is always visible in the corner');
+  await host.keyboard.press('KeyF'); await sleep(1200);
+  ok(/Hz.*sim.*draw.*res/.test(await host.textContent('#fps')), 'F shows detailed performance info');
+  await host.keyboard.press('KeyF');
+
   await host.fill('#name', 'Hosty'); await host.click('#btnHost');
   await until(host, () => __game.mode === 'host' && __game.host && __game.host.code, 'host gets a room code');
   const code = await host.evaluate(() => __game.host.code);
