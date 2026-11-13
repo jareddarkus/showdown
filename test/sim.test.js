@@ -80,6 +80,31 @@ function airRun(inp) {
   for (; t < 400; t++) { sim.step(); if (f.sinceFloor < 0.01) break; }
   return { t, x: f.body.position.x, vy: f.body.velocity.y };
 }
+ok('air edge-follow: with a stick, the closest edge turns to face it, within spin limits; keyboard/ground untouched', () => {
+  const q = Math.PI / 2, off = (a, th) => { let d = (th - a) % q; if (d > q / 2) d -= q; if (d < -q / 2) d += q; return Math.abs(d); };
+  const run = (inp, steps, at = { x: 250, y: 100 }) => {
+    const sim = S.create(); const f = sim.addFighter({ id: 1, name: 'a', team: 1, at });
+    M_.Body.setAngle(f.body, 0.3);
+    sim.setInput(1, inp); let maxAv = 0;
+    for (let i = 0; i < steps; i++) { sim.step(); maxAv = Math.max(maxAv, Math.abs(f.body.angularVelocity)); }
+    return { f, maxAv };
+  };
+  const M_ = require('../lib/matter.min.js');
+  for (const th of [-Math.PI / 2, -1.0, 0.5, 2.2]) {
+    const { f, maxAv } = run({ ax: Math.cos(th), ay: Math.sin(th), aim: true, face: true }, 25);
+    assert(off(f.body.angle, th) < 0.03, `edge faces ${th.toFixed(2)} rad within 25 steps (off ${off(f.body.angle, th).toFixed(3)})`);
+    assert(maxAv <= CFG.ROT_MAX + 0.01, 'never spins faster than ROT_MAX');
+  }
+  const kb = run({ ax: 1, ay: 0, aim: true }, 25);                           // keyboard aim: face flag off → cube not auto-turned
+  assert(off(kb.f.body.angle, 0) > 0.1 || Math.abs(kb.f.body.angle - 0.3) < 0.05, 'keyboard aim does not auto-turn');
+  const gpos = { x: 250, y: CFG.H - 45 };
+  const g1 = run({ ax: 1, ay: 0, aim: true, face: true }, 40, gpos);               // left stick sideways on the ground = rolling, no auto-turn
+  assert(Math.abs(g1.f.body.angle) < 0.35, 'no auto-turn on the ground from a sideways left stick');
+  const th = -Math.PI / 2 + 0.5;                                                  // right stick on the ground turns the cube
+  const g2 = run({ ax: Math.cos(th), ay: Math.sin(th), aim: true, face: true, faceG: true }, 60, gpos);
+  assert(off(g2.f.body.angle, th) < 0.08, `right stick turns the cube on the ground (off ${off(g2.f.body.angle, th).toFixed(3)})`);
+});
+
 ok('fast fall (Smash-style): S while descending snaps to FAST_FALL_V and holds until landing; W floats; normal fall is capped', () => {
   const sim = S.create();
   const f = sim.addFighter({ id: 1, name: 'a', team: 1, at: { x: 250, y: 100 } });

@@ -122,7 +122,7 @@
         canJump: true, canDash: true, sinceFloor: 0, sinceContact: 0, lastNs: [{ x: 0, y: -1 }],
         dashT: 0, dashDir: { x: 1, y: 0 }, dashHit: new Set(),
         lockout: 0, contacts: [],
-        inp: { rot: 0, mx: 0, my: 0, ax: 0, ay: 0, aim: false }, pendingSpace: false, pressT: 0, dashCd: 0, fastFall: false,
+        inp: { rot: 0, mx: 0, my: 0, ax: 0, ay: 0, aim: false, face: false, faceG: false }, pendingSpace: false, pressT: 0, dashCd: 0, fastFall: false,
         stats: { hits: 0, kills: 0, deaths: 0, resets: 0 },
       };
       body.fighter = f;
@@ -164,6 +164,8 @@
       // rot/mx/my = moving (A/D roll + air steer, W/S float/dive). ax/ay/aim = the direction a jump or dash goes.
       f.inp.rot = n(inp.rot); f.inp.mx = n(inp.mx); f.inp.my = n(inp.my); f.inp.ax = n(inp.ax); f.inp.ay = n(inp.ay);
       f.inp.aim = !!inp.aim && (f.inp.ax !== 0 || f.inp.ay !== 0);
+      f.inp.face = f.inp.aim && !!inp.face;   // stick aiming: the closest edge turns toward the aim (in the air)
+      f.inp.faceG = f.inp.face && !!inp.faceG; // ...and on the ground too, when the stick isn't being used to roll
     };
     sim.pressSpace = id => { const f = fighters.get(id); if (f) { f.pendingSpace = true; f.pressT = CFG.PRESS_BUFFER; } };
 
@@ -256,7 +258,19 @@
         // Rotation: build spin toward the target, damp lightly in the air.
         const grounded = f.sinceFloor < 0.04;
         let av = b.angularVelocity;
-        if (f.inp.rot !== 0) {
+        if (f.inp.face && (!grounded || f.inp.faceG) && f.dashT <= 0) {
+          // Stick in the air: turn the cube so its closest edge faces the stick, as fast as the normal spin limits allow
+          // (same ROT_MAX / ROT_ACCEL as manual spin): aim for the speed that lets us brake exactly on target.
+          const q = Math.PI / 2;
+          let d = (Math.atan2(f.inp.ay, f.inp.ax) - b.angle) % q;           // signed angle to the nearest edge direction
+          if (d > q / 2) d -= q; else if (d < -q / 2) d += q;
+          if (Math.abs(d) < 0.004 && Math.abs(av) < 0.02) { Body.setAngle(b, b.angle + d); Body.setAngularVelocity(b, 0); }
+          else {
+            const want = Math.sign(d) * Math.min(CFG.ROT_MAX, Math.sqrt(2 * CFG.ROT_ACCEL * Math.abs(d)));
+            av += Math.max(-CFG.ROT_ACCEL, Math.min(CFG.ROT_ACCEL, want - av));
+            Body.setAngularVelocity(b, av);
+          }
+        } else if (f.inp.rot !== 0) {
           const target = f.inp.rot * CFG.ROT_MAX;
           av += Math.max(-CFG.ROT_ACCEL, Math.min(CFG.ROT_ACCEL, target - av));
           Body.setAngularVelocity(b, av);
