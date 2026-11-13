@@ -23,24 +23,53 @@
   #help.hidden { display:none; }
   #pad { position:fixed; left:16px; bottom:14px; font-size:12px; color:var(--muted); user-select:none; }
   #pad.on { color:var(--ink); }
+  #menu { position:fixed; left:50%; top:12px; transform:translateX(-50%); display:flex; flex-wrap:wrap; gap:6px; align-items:center;
+    justify-content:center; background:rgba(250,248,243,.92); border:1px solid #dcd8cf; padding:8px 10px; border-radius:10px;
+    font-size:12px; max-width:min(560px, calc(100vw - 360px)); backdrop-filter: blur(4px); }
+  #menu input { font:600 12px ui-sans-serif, system-ui, sans-serif; padding:5px 8px; border:1px solid #c9c4b8; border-radius:6px; background:#fff; color:var(--ink); width:110px; }
+  #menu #code { width:76px; text-transform:uppercase; letter-spacing:.12em; text-align:center; }
+  #menu button { font:600 12px ui-sans-serif, system-ui, sans-serif; padding:5px 11px; border:1px solid var(--ink); border-radius:6px; background:var(--ink); color:#fff; cursor:pointer; }
+  #menu button.alt { background:#fff; color:var(--ink); }
+  #menu button:hover { filter:brightness(1.15); }
+  #menu [hidden] { display:none !important; }
+  #status { flex-basis:100%; text-align:center; color:var(--muted); }
+  #roster { flex-basis:100%; text-align:center; line-height:1.5; }
+  #roster:empty { display:none; }
+  #roster .t1 { color:#c9472f; } #roster .t2 { color:#b9840f; }
+  @media (max-width: 900px) { #menu { max-width:calc(100vw - 24px); top:auto; bottom:44px; } }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 
+<div id="menu">
+  <input id="name" maxlength="16" placeholder="Your name" aria-label="Your name" autocomplete="off">
+  <button id="btnHost">Host game</button>
+  <input id="code" maxlength="5" placeholder="CODE" aria-label="Room code" autocomplete="off" spellcheck="false">
+  <button id="btnJoin" class="alt">Join</button>
+  <button id="btnCopy" class="alt" hidden>Copy invite link</button>
+  <button id="btnLeave" class="alt" hidden>Leave</button>
+  <div id="status"></div>
+  <div id="roster"></div>
+</div>
+
 <div id="help">
-  <div class="title">Cube League <span class="dim">· sandbox</span></div>
+  <div class="title">Cube League <span class="dim">· 3v3 arena</span></div>
   <div><kbd>A</kbd><kbd>D</kbd> rotate (roll on ground, spin in air)</div>
   <div><kbd>Space</kbd> jump · press again in the air to <b>dash</b></div>
   <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> hold to aim the dash <span class="dim">(none = along the white dot)</span></div>
   <div><b>Dash reset:</b> touch any surface with two corners at once to get your dash back</div>
-  <div>Hit the <b>yellow bots</b> during the blue outline to take a heart</div>
-  <div><kbd>R</kbd> respawn · <kbd>H</kbd> hide this</div>
+  <div>Hit <b>enemy cubes</b> during the blue outline to take a heart (practice: the yellow bots)</div>
+  <div><kbd>R</kbd> respawn (practice only) · <kbd>H</kbd> hide this</div>
   <div class="dim" style="margin-top:4px">🎮 Controller: left stick aim · ✕ jump/dash · R1/L1 or right stick rotate · Options respawn</div>
 </div>
 <div id="pad">🎮 press any controller button to connect</div>
 
 <script src="lib/matter.min.js"></script>
+<script src="lib/peerjs.min.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/net.js"></script>
+<script src="js/render.js"></script>
 <script src="js/game.js"></script>
 </body>
 </html>
