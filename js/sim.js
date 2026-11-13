@@ -9,7 +9,7 @@
 (function (root) {
   'use strict';
   const M = root.Matter || (typeof require === 'function' ? require('../lib/matter.min.js') : null);
-  const { Engine, Bodies, Body, Composite, Collision, Bounds } = M;
+  const { Engine, Bodies, Body, Composite, Collision, Bounds, Vertices } = M;
 
   const STEP_MS = 1000 / 60;
   const STEP = 1 / 60;
@@ -30,14 +30,14 @@
     AIR_VMAX_Y: 16,                // px/step cap on fall speed while diving
     COYOTE: 0.17,                  // s you can still jump after leaving a floor
     RESET_LOCKOUT: 0.12,           // s after a jump/dash during which resets are ignored
-    FLUSH_DEG: 8,                  // face-to-surface tolerance for counting as "two corners"
+    RESET_CENTER_HALF: 12,         // px either side of an edge's midpoint that count as "the middle of the edge" (≈24 px of 56)
+    RESET_REACH: 6,                // px beyond the edge the surface may be and still count as touching (≈ up to 20° of tilt)
     HEARTS: 3,
     HEART_REVEAL: 2.0,             // s a hit cube shows its hearts to everyone (renderer side)
     RESPAWN_DELAY: 2.5,
     TEAM_SIZE: 3,
   };
-  const FLUSH_COS = Math.cos(CFG.FLUSH_DEG * Math.PI / 180);
-
+  
   // Static scenery + pushable crates. Shared by host and clients (clients draw it without Matter).
   const { W, H, WALL } = CFG;
   const LAYOUT = {
@@ -172,11 +172,17 @@
         const n = { x: c.normal.x, y: c.normal.y };
         // Orient so the normal points from the other body toward this cube.
         if (n.x * (b.position.x - o.position.x) + n.y * (b.position.y - o.position.y) < 0) { n.x = -n.x; n.y = -n.y; }
-        // "Flush" = the face turned toward the surface is within ~8° of parallel, even if only one
-        // corner has registered yet (forgiving, without counting 45° corner hits).
-        const a = b.angle, ca = Math.cos(a), sa = Math.sin(a);
-        const align = Math.max(Math.abs(ca * n.x + sa * n.y), Math.abs(-sa * n.x + ca * n.y));
-        const flush = corners.size >= 2 || (corners.size >= 1 && align > FLUSH_COS);
+        // Reset contact = the MIDDLE of one of the cube's edges touches the surface (not a corner).
+        // Probe three points across the middle of each edge, a few px outside it, against the other body.
+        const a = b.angle, half = CFG.CUBE / 2;
+        let flush = false;
+        for (let k = 0; k < 4 && !flush; k++) {
+          const fa = a + k * Math.PI / 2, nx = Math.cos(fa), ny = Math.sin(fa);   // outward face normal
+          for (const off of [-CFG.RESET_CENTER_HALF, 0, CFG.RESET_CENTER_HALF]) {
+            const p = { x: b.position.x + nx * (half + CFG.RESET_REACH) - ny * off, y: b.position.y + ny * (half + CFG.RESET_REACH) + nx * off };
+            if (Vertices.contains(o.vertices, p)) { flush = true; break; }
+          }
+        }
         out.push({ other: o, n, corners: corners.size, flush });
       }
       return out;
