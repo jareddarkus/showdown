@@ -89,8 +89,34 @@ ok('air control: W lands slower, S lands faster, A/D steer', () => {
   assert(r.x - 250 < 420, 'air speed capped below ground roll');
 });
 
-// Dash reset = middle of an edge touches a surface; corners alone don't count.
-function resetAt(deg) {
+ok('jump goes off the touched surface: straight without aim, toward the aim with one, off walls too', () => {
+  const run = (inp, at) => {
+    const sim = S.create(); const f = sim.addFighter({ id: 1, name: 'a', team: 1, at });
+    settle(sim, 60); sim.setInput(1, inp); sim.pressSpace(1); sim.step(); return f.body.velocity;
+  };
+  const floor = { x: 250, y: CFG.H - 60 };
+  const plain = run({}, floor);
+  const aimed = run({ ax: 1, ay: 0, aim: true }, floor);
+  assert(Math.abs(plain.x) < 1 && plain.y < -8, 'no aim → straight up off the floor');
+  assert(aimed.x > 8 && aimed.y < -4 && aimed.y > -13, `aim right → leaning right (${aimed.x.toFixed(1)}, ${aimed.y.toFixed(1)})`);
+  assert(run({ ax: 0, ay: 1, aim: true }, floor).y < -8, 'aiming into the floor → straight off it');
+  const wall = run({}, { x: CFG.CUBE / 2 + 2, y: 700 });             // pressed against the left wall in mid-air
+  const wall2 = (() => { const sim = S.create(); const f = sim.addFighter({ id: 1, name: 'a', team: 1, at: { x: CFG.CUBE / 2 + 1, y: 700 } });
+    sim.setInput(1, { mx: -1 }); for (let i = 0; i < 8; i++) sim.step(); sim.setInput(1, {}); sim.pressSpace(1); sim.step(); return f.body.velocity; })();
+  assert(wall2.x > 8, `jump off a wall pushes away from it (vx ${wall2.x.toFixed(1)})`);
+});
+
+ok('dash is the jump from the void: only when nothing was touched recently', () => {
+  const sim = S.create();
+  const f = sim.addFighter({ id: 1, name: 'a', team: 1, at: { x: 1250, y: 250 } });
+  for (let i = 0; i < 30; i++) sim.step();                // falling, touching nothing
+  assert(!f.canJump && f.canDash, 'airborne');
+  sim.pressSpace(1); sim.step();
+  assert(f.dashT > 0, 'dashes from the void');
+});
+
+// Jump: any part of the cube touching anything. Dash reset: the MIDDLE of an edge touching (corners alone don't).
+function touchAt(deg) {
   const M = require('../lib/matter.min.js');
   const sim = S.create();
   const f = sim.addFighter({ id: 1, name: 'a', team: 1, at: { x: 250, y: 500 } });
@@ -98,37 +124,20 @@ function resetAt(deg) {
   M.Body.setStatic(f.body, true);                 // freeze it so we test the detection, not the physics
   M.Body.setAngle(f.body, th);
   M.Body.setPosition(f.body, { x: 250, y: CFG.H - h * (Math.abs(Math.cos(th)) + Math.abs(Math.sin(th))) + 0.5 });
-  f.canDash = false; f.lockout = 0; f.flatT = -1;
+  f.canDash = false; f.canJump = false; f.sinceContact = 99; f.lockout = 0;
   sim.step(); sim.step();
-  return f.canDash;
+  return { jump: f.canJump, dash: f.canDash };
 }
-ok('dash reset: flat edge and small tilts reset; corner-first (30°, 45°) does not', () => {
-  assert.strictEqual(resetAt(0), true, '0°');
-  assert.strictEqual(resetAt(10), true, '10°');
-  assert.strictEqual(resetAt(-10), true, '-10°');
-  assert.strictEqual(resetAt(30), false, '30°');
-  assert.strictEqual(resetAt(45), false, '45°');
-});
-
-ok('aimed jump (right stick) leans the jump; keyboard-style jump stays vertical', () => {
-  const run = inp => {
-    const sim = S.create(); const f = sim.addFighter({ id: 1, name: 'a', team: 1, at: { x: 250, y: CFG.H - 60 } });
-    settle(sim, 60); sim.setInput(1, inp); sim.pressSpace(1); sim.step(); return f.body.velocity;
-  };
-  const plain = run({ ax: 1, ay: 0, aim: true });                    // keyboard: aim does not steer a jump
-  const aimed = run({ ax: 1, ay: 0, aim: true, jaim: true });        // right stick: it does
-  assert(Math.abs(plain.x) < 1 && plain.y < -8, 'plain jump is vertical');
-  assert(aimed.x > 8 && aimed.y < -4, `aimed jump leans right (${aimed.x.toFixed(1)}, ${aimed.y.toFixed(1)})`);
-  assert(aimed.y > -13 && Math.hypot(aimed.x, aimed.y) < 18, 'bounded');
-  const down = run({ ax: 0, ay: 1, aim: true, jaim: true });         // aiming into the floor is clamped to 60° off vertical
-  assert(down.y < -4, 'cannot jump into the floor');
+ok('edge-middle touch restores dash (±20° tilt); corner-first touches only allow a jump', () => {
+  for (const d of [0, 10, -10]) assert.deepStrictEqual(touchAt(d), { jump: true, dash: true }, d + '°');
+  for (const d of [30, 45]) assert.deepStrictEqual(touchAt(d), { jump: true, dash: false }, d + '°');
 });
 
 ok('dash cooldown is a plain timer: mashing never speeds it up or stretches it', () => {
   const M = require('../lib/matter.min.js');
   const sim = S.create();
   const f = sim.addFighter({ id: 1, name: 'a', team: 1, at: { x: 300, y: 160 } });
-  M.Body.setVelocity(f.body, { x: 0, y: 0 }); f.canJump = false; f.sinceFloor = 1;
+  M.Body.setVelocity(f.body, { x: 0, y: 0 }); f.sinceContact = 99; f.sinceFloor = 99; f.canJump = false;
   sim.setInput(1, { ax: 0, ay: -1, aim: true });
   const dashAt = [];
   let was = false;
@@ -147,7 +156,7 @@ ok('dash cooldown is a plain timer: mashing never speeds it up or stretches it',
 ok('a single early press is buffered and fires as soon as the dash is available', () => {
   const sim = S.create();
   const f = sim.addFighter({ id: 1, name: 'a', team: 1, at: { x: 1400, y: 300 } });
-  f.canJump = false; f.sinceFloor = 1; f.canDash = false;
+  f.sinceContact = 99; f.sinceFloor = 99; f.canJump = false; f.canDash = false;
   sim.pressSpace(1); for (let i = 0; i < 5; i++) sim.step();
   f.canDash = true; sim.pressSpace(1); sim.step();      // available again → fires on the next step
   sim.step();
@@ -164,5 +173,9 @@ ok('other players count as surfaces: landing on one gives jump + dash back', () 
   for (let i = 0; i < 90; i++) sim.step();
   assert(top.canJump, 'can jump off another cube');
   assert(top.canDash, 'dash restored by touching another cube');
+});
+ok('version.js defines a semantic version (never ship it empty)', () => {
+  const v = require('fs').readFileSync(require('path').join(__dirname, '../js/version.js'), 'utf8');
+  assert(/CUBE_VERSION\s*=\s*'\d+\.\d+\.\d+'/.test(v), 'js/version.js must set window.CUBE_VERSION');
 });
 console.log(n + ' tests passed');

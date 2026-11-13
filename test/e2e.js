@@ -88,7 +88,8 @@ const until = async (page, fn, msg, ms = 8000) => { const t = Date.now(); while 
 
   // Jump from the client (Space edge via counter).
   await cli.keyboard.press('Space');
-  await until(host, () => __game.sim.fighters.get(1).canJump === false, 'client Space → jump on host');
+  await sleep(200);
+  ok(await host.evaluate(() => __game.sim.fighters.get(1).canJump === false), 'client Space reaches the host within 200 ms (no heartbeat delay)');
   await until(cli, () => __game.net.me && __game.net.me.jump === false, 'client receives its own private state');
 
   // Combat: put them face-to-face, host dashes into the client.
@@ -116,6 +117,15 @@ const until = async (page, fn, msg, ms = 8000) => { const t = Date.now(); while 
 
   // Dash outline is local-only: client view of host has no dash info in snapshots.
   ok(snaps.every(m => m.s.f.every(f => f.length === 6)), 'snapshot rows carry no dash/hearts fields');
+
+  // A host in a background window gets no requestAnimationFrame at all. The match must keep running anyway.
+  await host.evaluate(() => { window.requestAnimationFrame = () => 0; });
+  await sleep(300);
+  const t0 = await host.evaluate(() => __game.sim.time), c0 = await cli.evaluate(() => __game.net.snaps[__game.net.snaps.length - 1].t);
+  await sleep(1500);
+  const t1 = await host.evaluate(() => __game.sim.time), c1 = await cli.evaluate(() => __game.net.snaps[__game.net.snaps.length - 1].t);
+  ok(t1 - t0 > 1.3 && t1 - t0 < 1.7, `host sim keeps real-time pace with rAF stopped (+${(t1 - t0).toFixed(2)} s in 1.5 s)`);
+  ok(c1 - c0 > 1.3, `client keeps receiving snapshots from a background host (+${(c1 - c0).toFixed(2)} s)`);
 
   // Client leaves → host roster shrinks.
   await cli.click('#btnLeave');

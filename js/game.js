@@ -8,7 +8,7 @@
 
   const SNAP_EVERY = 2;        // host sends a snapshot every N sim steps (60/2 = 30 Hz)
   const INTERP_DELAY = 0.10;   // s — clients render this far in the past so they can interpolate
-  const INPUT_HEARTBEAT = 0.25;
+  const INPUT_HEARTBEAT = 0.1;
 
   const renderer = CubeRender.create($('c'));
 
@@ -18,7 +18,6 @@
   let host = null, client = null;
   let myId = 0;
   let roster = new Map();      // id -> {name, team}   (clients; host/solo read the sim)
-  let pendingEv = [];          // host: events since the last broadcast
   let stepsSinceSnap = 0;
   const net = { snaps: [], offset: null, me: null, score: [0, 0], lastSent: '', lastSentAt: 0 };
 
@@ -27,7 +26,7 @@
     if (client) client.close();
     host = client = sim = null;
     net.snaps = []; net.offset = null; net.me = null; net.score = [0, 0]; net.lastSent = '';
-    pendingEv = []; stepsSinceSnap = 0; roster = new Map();
+    stepsSinceSnap = 0; roster = new Map();
     renderer.resetEffects();
   }
   const nameVal = () => { const n = CubeNet.cleanName($('name').value); try { localStorage.setItem('cl_name', n); } catch (e) { /* private mode */ } return n; };
@@ -71,12 +70,12 @@
   // ───────────────────────── Input ─────────────────────────
   const keys = new Set();
   let gpPrev = { jump: false, respawn: false };
-  // rot/mx/my = moving (A/D roll + air steer, W/S float/dive); ax/ay/aim = where a dash goes; jaim = the jump follows it too.
-  const input = { rot: 0, mx: 0, my: 0, aim: { x: 0, y: 0 }, aimActive: false, jaim: false };
+  // rot/mx/my = moving (A/D roll + air steer, W/S float/dive); ax/ay/aim = the direction a jump or dash goes.
+  const input = { rot: 0, mx: 0, my: 0, aim: { x: 0, y: 0 }, aimActive: false };
   const typing = e => e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName);
 
   function pressSpace() {
-    if (mode === 'client') { if (client) client.pressSpace(); }
+    if (mode === 'client') { if (client) { client.pressSpace(); sendClientInput(performance.now() / 1000, true); } }   // send NOW, not at the next heartbeat
     else if (sim) sim.pressSpace(myId);
   }
   function tryRespawn() { if (mode === 'solo' && sim) sim.respawn(myId); }   // no free respawns in a real match
@@ -102,7 +101,7 @@
     let ax = mx, ay = my;
     const m = Math.hypot(ax, ay);
     if (m > 0) { ax /= m; ay /= m; }
-    let aimActive = m > 0, jaim = false;
+    let aimActive = m > 0;
 
     const pads = (navigator.getGamepads && navigator.getGamepads()) || [];
     let gp = null;
@@ -113,8 +112,11 @@
       const lx = dz(gp.axes[0] || 0), ly = dz(gp.axes[1] || 0);
       if (lx !== 0) { rot = mx = lx; }
       if (ly !== 0) my = ly;
+      // Left stick aims too (any direction you hold it); the right stick overrides it when it is pushed.
+      const lm = Math.hypot(lx, ly);
+      if (lm > 0.35) { ax = lx / lm; ay = ly / lm; aimActive = true; }
       const rx = gp.axes[2] || 0, ry = gp.axes[3] || 0, rm = Math.hypot(rx, ry);
-      if (rm > 0.35) { ax = rx / rm; ay = ry / rm; aimActive = true; jaim = true; }
+      if (rm > 0.35) { ax = rx / rm; ay = ry / rm; aimActive = true; }
       const r1 = !!(gp.buttons[5] && gp.buttons[5].pressed), opt = !!(gp.buttons[9] && gp.buttons[9].pressed);
       if (r1 && !gpPrev.jump) pressSpace();
       if (opt && !gpPrev.respawn) tryRespawn();
@@ -123,7 +125,7 @@
       padEl.textContent = '🎮 press any controller button to connect'; padEl.classList.remove('on');
     }
     input.rot = rot; input.mx = mx; input.my = my;
-    input.aim.x = ax; input.aim.y = ay; input.aimActive = aimActive; input.jaim = jaim;
+    input.aim.x = ax; input.aim.y = ay; input.aimActive = aimActive;
   }
 
   // ───────────────────────── Client: snapshots → interpolated view ─────────────────────────
@@ -132,7 +134,8 @@
   function onSnap(msg) {
     const now = nowSec(), s = msg.s;
     const o = now - s.t;
-    net.offset = net.offset === null || o < net.offset ? o : net.offset + (o - net.offset) * 0.01;
+    // Track how fast the host's clock really runs (a laggy host sims slower than wall time) instead of assuming 1:1.
+    net.offset = net.offset === null ? o : net.offset + (o - net.offset) * 0.08;
     net.snaps.push(s);
     if (net.snaps.length > 30) net.snaps.shift();
     net.me = msg.me; net.score = s.s;
@@ -142,7 +145,7 @@
   function clientView(now) {
     const sn = net.snaps;
     if (!sn.length) return null;
-    const rt = (now - net.offset) - INTERP_DELAY;
+    const rt = Math.min((now - net.offset) - INTERP_DELAY, sn[sn.length - 1].t);   // never play past the newest snapshot
     let a = sn[0], b = sn[0];
     for (let i = 0; i < sn.length; i++) {
       if (sn[i].t <= rt) { a = sn[i]; b = sn[Math.min(i + 1, sn.length - 1)]; }
@@ -162,12 +165,12 @@
     return { fighters, crates };
   }
 
-  function sendClientInput(now) {
+  function sendClientInput(now, force = false) {
     if (!client) return;
     const r2 = v => +v.toFixed(2);
-    const msg = { rot: r2(input.rot), mx: r2(input.mx), my: r2(input.my), ax: r2(input.aim.x), ay: r2(input.aim.y), aim: input.aimActive, jaim: input.jaim };
+    const msg = { rot: r2(input.rot), mx: r2(input.mx), my: r2(input.my), ax: r2(input.aim.x), ay: r2(input.aim.y), aim: input.aimActive };
     const key = JSON.stringify(msg);
-    if (key !== net.lastSent || now - net.lastSentAt > INPUT_HEARTBEAT) { client.sendInput(msg); net.lastSent = key; net.lastSentAt = now; }
+    if (force || key !== net.lastSent || now - net.lastSentAt > INPUT_HEARTBEAT) { client.sendInput(msg); net.lastSent = key; net.lastSentAt = now; }
   }
 
   // ───────────────────────── Views ─────────────────────────
@@ -221,16 +224,44 @@
   };
 
   // ───────────────────────── Main loop ─────────────────────────
+  // Simulation runs on its own clock (advanceSim), driven by a Worker timer. Browsers throttle requestAnimationFrame and
+  // main-thread timers in background windows, which would freeze a host the other players are depending on.
+  let simLast = performance.now(), simAcc = 0;
+  function advanceSim(nowMs) {
+    if (!sim) { simLast = nowMs; return; }
+    const dtMs = Math.min(250, nowMs - simLast); simLast = nowMs;
+    simAcc += dtMs;
+    const now = nowMs / 1000;
+    let n = 0;
+    while (simAcc >= STEP_MS && n < 15) {
+      sim.step(); simAcc -= STEP_MS; n++;
+      if (mode === 'host' && ++stepsSinceSnap >= SNAP_EVERY) {
+        stepsSinceSnap = 0;
+        const evs = sim.drainEvents();
+        for (const ev of evs) renderer.handleEvent(ev, myId, now);
+        if (host && host.players.size) host.broadcast(sim.snapshot(), evs);
+      }
+    }
+    if (n === 15) simAcc = 0;
+    if (mode === 'solo') for (const ev of sim.drainEvents()) renderer.handleEvent(ev, myId, now);
+  }
+  try {
+    const src = 'let id=null;onmessage=e=>{if(e.data==="start"&&!id)id=setInterval(()=>postMessage(0),8);};';
+    const w = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+    w.onmessage = () => advanceSim(performance.now());
+    w.postMessage('start');
+  } catch (e) { /* no worker: frame() below still advances the sim */ }
+
   // perf: press F in game to show fps / sim ms / draw ms. If the framerate stays low the renderer lowers its resolution.
   const perf = { show: false, frames: 0, t0: performance.now(), fps: 0, simMs: 0, drawMs: 0, slow: 0 };
-  let last = performance.now(), acc = 0;
+  let last = performance.now();
   function frame(nowMs) {
-    // 120/144 Hz displays: draw every other refresh so we never spend more than ~60 draws/s (the sim is 60 Hz anyway).
+    // 120/144 Hz displays: draw every other refresh so we never spend more than ~60 draws/s.
     if (nowMs - last < 15) { requestAnimationFrame(frame); return; }
     const dt = Math.min(0.1, (nowMs - last) / 1000); last = nowMs;
-    const tSim = performance.now();
     const now = nowMs / 1000;
     pollInput();
+    const tSim = performance.now();
     let view;
 
     if (mode === 'client') {
@@ -238,21 +269,8 @@
       const cv = clientView(now);
       view = cv ? { ...cv, me: net.me ? { id: myId, ...net.me } : null, score: net.score } : { fighters: [], crates: [], me: null, score: null };
     } else if (sim) {
-      sim.setInput(myId, { rot: input.rot, mx: input.mx, my: input.my, ax: input.aim.x, ay: input.aim.y, aim: input.aimActive, jaim: input.jaim });
-      acc += dt * 1000;
-      let n = 0;
-      while (acc >= STEP_MS && n < 5) {
-        sim.step(); acc -= STEP_MS; n++;
-        if (mode === 'host' && ++stepsSinceSnap >= SNAP_EVERY) {
-          stepsSinceSnap = 0;
-          const evs = sim.drainEvents();
-          for (const ev of evs) renderer.handleEvent(ev, myId, now);
-          if (host && host.players.size) host.broadcast(sim.snapshot(), pendingEv.concat(evs));
-          pendingEv = [];
-        }
-      }
-      if (n === 5) acc = 0;
-      if (mode === 'solo') for (const ev of sim.drainEvents()) renderer.handleEvent(ev, myId, now);
+      sim.setInput(myId, { rot: input.rot, mx: input.mx, my: input.my, ax: input.aim.x, ay: input.aim.y, aim: input.aimActive });
+      advanceSim(performance.now());
       view = simView(now);
     }
     perf.simMs += (performance.now() - tSim - perf.simMs) * 0.1;
