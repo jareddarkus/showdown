@@ -218,7 +218,7 @@
     }
     function resetEffects() { particles.length = 0; floaters.length = 0; reveal.clear(); flash.clear(); first = true; }
 
-    const lowerResolution = () => { if (dprCap > 1) { dprCap = Math.max(1, dprCap - 0.5); resize(); } };
+    const lowerResolution = () => { const eff = Math.min(window.devicePixelRatio || 1, dprCap); if (eff > 0.75) { dprCap = Math.max(0.75, eff - 0.5); resize(); } };
     return { draw, handleEvent, resetEffects, resize, lowerResolution, dprCap: () => Math.min(window.devicePixelRatio || 1, dprCap) };
   }
 

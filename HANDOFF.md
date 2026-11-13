@@ -12,6 +12,7 @@ The owner (GitHub: `jareddarkus`) has granted **full permission** to create/modi
 The version shows bottom-right in the game (`js/version.js`, `window.CUBE_VERSION`). **Bump it on every update** and add a line here. Host and client must match (handshake refuses mismatches).
 
 CHANGELOG
+- 0.9.2 — Chrome smoothness/perf: FPS counter always shown bottom-right (F = details: screen Hz, sim/draw ms, worst frame, resolution, GPU name — check for "SwiftShader"/software = hardware acceleration off); render interpolation between fixed sim steps (judder under jittery frame timing 0.123 → 0.005); refresh-rate-aware frame pacing (old 15 ms rule could drop alternate frames on 60 Hz); no per-frame DOM writes; auto-lower canvas resolution (<54 fps for 2 s after a 4 s warm-up, down to 0.75×).
 - 0.9.1 — removed the facing marker (white dot) from the cubes — no marker at all now (owner request; a dark equilateral triangle was tried and dropped); removed the 0.9.0 edge-follow turning.
 - 0.9.0 — (REMOVED in 0.9.1) controller edge-follow: the closest cube edge auto-turned toward the stick. Owner said turning felt "super weird" and asked to remove it; don't reintroduce without asking.
 - 0.8.0 — Smash-style fast fall: normal terminal fall speed (FALL_MAX 12 px/step), W lowers it (FALL_SLOW), S while descending snaps to FAST_FALL_V (19) and persists until contact/jump/dash/hit; removed the gradual S dive. New `fastfall` event + puff effect.
