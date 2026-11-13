@@ -138,8 +138,6 @@
         rectPath(f.x, f.y, CFG.CUBE, CFG.CUBE, f.a);
         ctx.fillStyle = fl > view.now ? '#ffffff' : teamColor(f.team); ctx.fill();
         ctx.lineWidth = 3 * z; ctx.strokeStyle = f.team === 1 ? COLORS.team1Edge : COLORS.team2Edge; ctx.stroke();
-        ctx.beginPath(); ctx.arc(f.x + Math.cos(f.a) * CFG.CUBE * 0.27, f.y + Math.sin(f.a) * CFG.CUBE * 0.27, CFG.CUBE * 0.09, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255,255,255,.92)'; ctx.fill();
 
         if (isMe) {
           // Dash window: thin blue border, only you see it.
