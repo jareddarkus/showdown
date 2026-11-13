@@ -80,6 +80,11 @@
         if (!p || !msg || typeof msg !== 'object') return;
         p.lastSeen = performance.now();
         if (msg.k === 'hello') {
+          if (msg.v !== root.CUBE_VERSION) {    // different builds would disagree on sizes/physics
+            send(p, { k: 'badver', v: root.CUBE_VERSION });
+            setTimeout(() => dropPlayer(p), 300);
+            return;
+          }
           const f = sim.fighters.get(p.id);
           if (f) { f.name = cleanName(msg.name); p.name = f.name; broadcastRoster(); }
         } else if (msg.k === 'in') {
@@ -136,13 +141,14 @@
     peer.on('error', err => fail(err.type === 'peer-unavailable' ? 'No game found with that code.' : 'Connection error: ' + err.type));
     peer.on('open', () => {
       conn = peer.connect(PREFIX + code, { serialization: 'json', reliable: true });
-      conn.on('open', () => conn.send({ k: 'hello', name: cleanName(name) }));
+      conn.on('open', () => conn.send({ k: 'hello', name: cleanName(name), v: root.CUBE_VERSION }));
       conn.on('data', msg => {
         if (!msg) return;
         if (msg.k === 'welcome') { welcomed = true; clearTimeout(timer); onWelcome(msg.id, msg.roster); }
         else if (msg.k === 'roster') onRoster(msg.roster);
         else if (msg.k === 'snap') onSnap(msg);
         else if (msg.k === 'full') fail('That game is full.');
+        else if (msg.k === 'badver') fail(`Version mismatch: host is v${msg.v}, you have v${root.CUBE_VERSION}. Hard-refresh the page (Ctrl+Shift+R).`);
       });
       conn.on('close', () => { if (done) return; if (welcomed) { done = true; if (onClose) onClose('The host left the game.'); } else fail('Connection closed.'); });
     });
