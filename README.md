@@ -15,9 +15,7 @@ A minimalist, physics-based 2D arena game where you are a cube.
 | Reset (practice only) | `R` | Options |
 | Hide help / show FPS | `H` / `F` | |
 
-No aim → a jump goes straight off the surface and a dash goes the way the white dot points. Jumping works within a short window (0.3 s) after touching any part of the cube to anything; a dash is a jump from the void. Dashes have a short 0.25 s cooldown; pressing early is buffered, so mashing works.
-
-No aim → a jump goes straight off the surface and a dash goes the way the white dot points. Jumping works within a short window (0.3 s) after touching any part of the cube to anything; a dash is a jump from the void.
+No aim → a jump goes straight off the surface and a dash goes the way the dark triangle on your cube points. Jumping works within a short window (0.3 s) after touching any part of the cube to anything; a dash is a jump from the void. Dashes have a short 0.25 s cooldown; pressing early is buffered, so mashing works.
 
 ## Mechanics
 

@@ -228,7 +228,7 @@
         return { x: f.inp.ax / m, y: f.inp.ay / m };
       }
       const a = f.body.angle;
-      return { x: Math.cos(a), y: Math.sin(a) };   // facing = the white dot
+      return { x: Math.cos(a), y: Math.sin(a) };   // facing = the dark triangle on the cube
     }
 
     function doDash(f) {

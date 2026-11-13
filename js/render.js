@@ -17,7 +17,7 @@
   const COLORS = {
     bg: '#dcd8cf', arena: '#f7f5ef', grid: '#ebe7dd', solid: '#23232b',
     box: '#c9c3b6', boxEdge: '#8f897b',
-    team1: '#ff6a4d', team1Edge: '#c9472f', team2: '#f2b632', team2Edge: '#b9840f',
+    team1: '#ff6a4d', team1Edge: '#c9472f', team1Dark: '#8a2a18', team2: '#f2b632', team2Edge: '#b9840f', team2Dark: '#855d06',
     blue: '#1e88ff', ink: '#23232b',
   };
   const teamColor = t => (t === 1 ? COLORS.team1 : COLORS.team2);
@@ -138,8 +138,13 @@
         rectPath(f.x, f.y, CFG.CUBE, CFG.CUBE, f.a);
         ctx.fillStyle = fl > view.now ? '#ffffff' : teamColor(f.team); ctx.fill();
         ctx.lineWidth = 3 * z; ctx.strokeStyle = f.team === 1 ? COLORS.team1Edge : COLORS.team2Edge; ctx.stroke();
-        ctx.beginPath(); ctx.arc(f.x + Math.cos(f.a) * CFG.CUBE * 0.27, f.y + Math.sin(f.a) * CFG.CUBE * 0.27, CFG.CUBE * 0.09, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255,255,255,.92)'; ctx.fill();
+        // Facing marker: a dark shade of the team colour, a triangle pointing the way a no-aim dash goes.
+        { const C = CFG.CUBE, dx = Math.cos(f.a), dy = Math.sin(f.a), px = -dy, py = dx;
+          ctx.beginPath();
+          ctx.moveTo(f.x + dx * C * 0.30, f.y + dy * C * 0.30);
+          ctx.lineTo(f.x - dx * C * 0.12 + px * C * 0.17, f.y - dy * C * 0.12 + py * C * 0.17);
+          ctx.lineTo(f.x - dx * C * 0.12 - px * C * 0.17, f.y - dy * C * 0.12 - py * C * 0.17);
+          ctx.closePath(); ctx.fillStyle = f.team === 1 ? COLORS.team1Dark : COLORS.team2Dark; ctx.fill(); }
 
         if (isMe) {
           // Dash window: thin blue border, only you see it.
