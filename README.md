@@ -24,7 +24,7 @@ No aim → a jump goes straight off the surface and a dash goes the cube's own f
 - Everything collides: walls, floating blocks, pushable crates, other cubes.
 - Every cube has 3 hearts. A dash hits only while the **thin blue outline** is on your cube.
 - A hit reveals the target's hearts to everyone for 2 seconds. Your own hearts are always in the top-right corner.
-- **Dash reset:** touch a surface with the middle of one of your edges (about the centre 40%, roughly ±20° of tilt) and you get your dash back — walls, floors, ceilings, crates and other cubes all count. Any other touch (a corner) still lets you jump but does not restore the dash. Corners alone don't count.
+- **Dash reset:** touch a surface with the middle of one of your edges (about the centre 40%, roughly ±20° of tilt) and you get your dash back — walls, floors, ceilings, crates and other cubes all count. Any other touch (a corner) still lets you jump but does not restore the dash. Touching another cube with your edge also gives *them* a free dash reset (enemy or ally). Corners alone don't count.
 
 ## Multiplayer (host / join, peer-to-peer)
 

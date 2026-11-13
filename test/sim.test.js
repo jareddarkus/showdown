@@ -165,6 +165,27 @@ ok('edge-middle touch restores dash (±20° tilt); corner-first touches only all
   for (const d of [30, 45]) assert.deepStrictEqual(touchAt(d), { jump: true, dash: false }, d + '°');
 });
 
+ok('my edge on another cube gives THAT cube a free dash reset, even if it only touches me with a corner (enemy or ally)', () => {
+  const M = require('../lib/matter.min.js');
+  const run = (aDeg, bDeg, team) => {
+    const sim = S.create();
+    const a = sim.addFighter({ id: 1, name: 'a', team: 1, at: { x: 1400, y: 300 } });
+    const b = sim.addFighter({ id: 2, name: 'b', team, at: { x: 1600, y: 300 } });
+    M.Body.setStatic(a.body, true); M.Body.setStatic(b.body, true);
+    M.Body.setAngle(a.body, aDeg * Math.PI / 180); M.Body.setAngle(b.body, bDeg * Math.PI / 180);
+    M.Body.setPosition(a.body, { x: 1400, y: 300 });
+    // b sits to the right of a; b is a diamond (45°) when it should touch a with a corner.
+    const reach = bDeg === 45 ? CFG.CUBE / Math.SQRT2 : CFG.CUBE / 2;
+    M.Body.setPosition(b.body, { x: 1400 + CFG.CUBE / 2 + reach - 0.6, y: 300 });
+    a.canDash = false; b.canDash = false; a.lockout = 0; b.lockout = 0;
+    sim.step(); sim.step();
+    return { a: a.canDash, b: b.canDash };
+  };
+  assert.deepStrictEqual(run(0, 45, 2), { a: true, b: true }, 'a edge → b corner (enemy): both get a reset');
+  assert.deepStrictEqual(run(0, 45, 1), { a: true, b: true }, 'same for an ally');
+  assert.deepStrictEqual(run(45, 45, 2), { a: false, b: false }, 'corner on corner: nobody gets one');
+});
+
 ok('dash cooldown is a plain timer: mashing never speeds it up or stretches it', () => {
   const M = require('../lib/matter.min.js');
   const sim = S.create();
