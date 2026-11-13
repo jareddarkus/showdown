@@ -15,7 +15,7 @@
   const STEP = 1 / 60;
   const CFG = {
     W: 3200, H: 1100, WALL: 100,
-    CUBE: 56,
+    CUBE: 80,
     GRAVITY_SCALE: 0.0016,         // ≈1600 px/s²
     JUMP_V: 13.5,                  // px/step  (≈810 px/s)
     DASH_V: 17.5,                  // px/step  (≈1050 px/s)
@@ -28,10 +28,10 @@
     AIR_FLOAT: 0.2,                // px/step² of lift with W  (gravity is ~0.44) → fall ≈ half speed
     AIR_DIVE: 0.28,                // px/step² of extra pull with S → fall ≈ 1.6× faster
     AIR_VMAX_Y: 16,                // px/step cap on fall speed while diving
-    COYOTE: 0.17,                  // s you can still jump after leaving a floor
+    COYOTE: 0.32,                  // s you can still jump after leaving a floor
     RESET_LOCKOUT: 0.12,           // s after a jump/dash during which resets are ignored
-    RESET_CENTER_HALF: 12,         // px either side of an edge's midpoint that count as "the middle of the edge" (≈24 px of 56)
-    RESET_REACH: 6,                // px beyond the edge the surface may be and still count as touching (≈ up to 20° of tilt)
+    RESET_CENTER_HALF: 17,         // px either side of an edge's midpoint that count as "the middle of the edge" (≈42% of the edge)
+    RESET_REACH: 8,                // px beyond the edge the surface may be and still count as touching (≈ up to 20° of tilt)
     HEARTS: 3,
     HEART_REVEAL: 2.0,             // s a hit cube shows its hearts to everyone (renderer side)
     RESPAWN_DELAY: 2.5,
@@ -67,8 +67,8 @@
   const r3 = v => Math.round(v * 1000) / 1000;
 
   function spawnPoint(team, slot) {
-    const x = 170 + (slot % CFG.TEAM_SIZE) * 115;
-    return { x: team === 1 ? x : W - x, y: H - 40 };
+    const x = 170 + (slot % CFG.TEAM_SIZE) * 130;
+    return { x: team === 1 ? x : W - x, y: H - CFG.CUBE / 2 - 12 };
   }
 
   function create(opts = {}) {
@@ -351,7 +351,7 @@
     };
 
     if (opts.bots) {
-      [1100, 2300, 2900].forEach((x, i) => sim.addFighter({ id: 'bot' + i, name: 'Bot', team: 2, bot: true, at: { x, y: H - 40 } }));
+      [1100, 2300, 2900].forEach((x, i) => sim.addFighter({ id: 'bot' + i, name: 'Bot', team: 2, bot: true, at: { x, y: H - CFG.CUBE / 2 - 12 } }));
     }
     return sim;
   }

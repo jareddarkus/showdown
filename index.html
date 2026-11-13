@@ -23,6 +23,7 @@
   #help.hidden { display:none; }
   #pad { position:fixed; left:16px; bottom:14px; font-size:12px; color:var(--muted); user-select:none; }
   #pad.on { color:var(--ink); }
+  #ver { position:fixed; right:14px; bottom:12px; font:600 12px ui-monospace, monospace; color:var(--muted); user-select:none; }
   #menu { position:fixed; left:50%; top:12px; transform:translateX(-50%); display:flex; flex-wrap:wrap; gap:6px; align-items:center;
     justify-content:center; background:rgba(250,248,243,.92); border:1px solid #dcd8cf; padding:8px 10px; border-radius:10px;
     font-size:12px; max-width:min(560px, calc(100vw - 360px)); backdrop-filter: blur(4px); }
@@ -64,13 +65,16 @@
   <div><kbd>R</kbd> respawn (practice only) · <kbd>H</kbd> hide this</div>
   <div class="dim" style="margin-top:4px">🎮 Controller: left stick aim · ✕ jump/dash · R1/L1 or right stick rotate · Options respawn</div>
 </div>
+<div id="ver"></div>
 <div id="pad">🎮 press any controller button to connect</div>
 
+<script src="js/version.js"></script>
 <script src="lib/matter.min.js"></script>
 <script src="lib/peerjs.min.js"></script>
 <script src="js/sim.js"></script>
 <script src="js/net.js"></script>
 <script src="js/render.js"></script>
 <script src="js/game.js"></script>
+<script>document.getElementById('ver').textContent = 'v' + window.CUBE_VERSION;</script>
 </body>
 </html>

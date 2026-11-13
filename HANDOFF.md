@@ -8,6 +8,16 @@
 Read this whole file first. It contains the owner's vision, what already exists, what is blocked, and what to do next.
 The owner (GitHub: `jareddarkus`) has granted **full permission** to create/modify/delete repos, Supabase projects, tables, etc. when the tools allow it. Act autonomously; ask only if truly blocked.
 
+## Versioning (owner request)
+The version shows bottom-right in the game (`js/version.js`, `window.CUBE_VERSION`). **Bump it on every update** and add a line here. Host and client must match (handshake refuses mismatches).
+
+CHANGELOG
+- 0.5.0 — cubes bigger (56→80 px, reset zone/offsets scaled), coyote 0.32 s (bigger cube hops more while rolling), version label + handshake check
+- 0.4.0 — dash reset = middle of an edge touches a surface
+- 0.3.0 — air control (A/D steer, W float, S dive)
+- 0.2.0 — P2P host/join multiplayer
+- 0.1.0 — single-player sandbox
+
 ---
 
 ## 1. Product vision (from the owner, paraphrased faithfully)

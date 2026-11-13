@@ -53,14 +53,14 @@
         case 'dash': burst(ev.x, ev.y, teamColor(ev.team), 6, 2.5); break;
         case 'reset':
           burst(ev.x, ev.y, COLORS.blue, 12, 4);
-          if (ev.id === myId) floater('DASH RESET', ev.x, ev.y - 56, COLORS.blue);
+          if (ev.id === myId) floater('DASH RESET', ev.x, ev.y - CFG.CUBE / 2 - 28, COLORS.blue);
           break;
         case 'hit':
           reveal.set(ev.id, { hp: ev.hp, until: now + CFG.HEART_REVEAL });
           flash.set(ev.id, now + 0.2);
           burst(ev.x, ev.y, '#ffffff', 10, 4);
           burst(ev.x, ev.y, teamColor(ev.team), 10, 5);
-          if (ev.id !== myId) floater('−1', ev.x, ev.y - 50, '#d9342b');
+          if (ev.id !== myId) floater('−1', ev.x, ev.y - CFG.CUBE / 2 - 24, '#d9342b');
           break;
         case 'die': burst(ev.x, ev.y, teamColor(ev.team), 30, 8); reveal.delete(ev.id); break;
         default: break;
@@ -137,7 +137,7 @@
         rectPath(f.x, f.y, CFG.CUBE, CFG.CUBE, f.a);
         ctx.fillStyle = fl > view.now ? '#ffffff' : teamColor(f.team); ctx.fill();
         ctx.lineWidth = 3 * z; ctx.strokeStyle = f.team === 1 ? COLORS.team1Edge : COLORS.team2Edge; ctx.stroke();
-        ctx.beginPath(); ctx.arc(f.x + Math.cos(f.a) * 15, f.y + Math.sin(f.a) * 15, 5, 0, Math.PI * 2);
+        ctx.beginPath(); ctx.arc(f.x + Math.cos(f.a) * CFG.CUBE * 0.27, f.y + Math.sin(f.a) * CFG.CUBE * 0.27, CFG.CUBE * 0.09, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(255,255,255,.92)'; ctx.fill();
 
         if (isMe) {
@@ -150,17 +150,17 @@
             ctx.save(); ctx.setLineDash([6 * z, 8 * z]);
             ctx.lineWidth = 2 * z; ctx.strokeStyle = 'rgba(30,136,255,.55)';
             ctx.beginPath();
-            ctx.moveTo(f.x + view.aim.x * 40, f.y + view.aim.y * 40);
-            ctx.lineTo(f.x + view.aim.x * 130, f.y + view.aim.y * 130);
+            ctx.moveTo(f.x + view.aim.x * CFG.CUBE * 0.7, f.y + view.aim.y * CFG.CUBE * 0.7);
+            ctx.lineTo(f.x + view.aim.x * CFG.CUBE * 2.3, f.y + view.aim.y * CFG.CUBE * 2.3);
             ctx.stroke(); ctx.restore();
           }
         } else {
           // Others' hearts: only for 2 s after they were hit. Yours live in the top-right corner.
           const r = reveal.get(f.id);
-          if (r && r.until > view.now) drawHearts(f.x, f.y - 58, r.hp, 7, Math.min(1, (r.until - view.now) / 0.3));
+          if (r && r.until > view.now) drawHearts(f.x, f.y - CFG.CUBE / 2 - 30, r.hp, 8, Math.min(1, (r.until - view.now) / 0.3));
           ctx.font = '600 12px ui-sans-serif, system-ui, sans-serif'; ctx.textAlign = 'center';
           ctx.fillStyle = 'rgba(35,35,43,.55)';
-          ctx.fillText(f.name, f.x, f.y - 40);
+          ctx.fillText(f.name, f.x, f.y - CFG.CUBE / 2 - 10);
         }
       }
 

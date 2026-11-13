@@ -109,6 +109,16 @@ const until = async (page, fn, msg, ms = 8000) => { const t = Date.now(); while 
   await until(cli, () => __game.mode === 'solo', 'host leaving drops client back to practice');
   ok(/host left/i.test(await cli.textContent('#status')), 'client is told the host left');
 
+  // Version label + mismatch rejection.
+  ok((await cli.textContent('#ver')) === 'v' + (await cli.evaluate(() => CUBE_VERSION)), 'version label is shown in the game');
+  await host.click('#btnHost');
+  await until(host, () => __game.host && __game.host.code, 'host again');
+  const code2 = await host.evaluate(() => __game.host.code);
+  await cli.evaluate(() => { window.CUBE_VERSION = '0.0.0'; });
+  await cli.fill('#code', code2); await cli.click('#btnJoin');
+  await until(cli, () => /Version mismatch/.test(document.getElementById('status').textContent), 'mismatched version is refused with a clear message');
+  await until(host, () => __game.sim.fighters.size === 1, 'host drops the mismatched client');
+
   // Wrong code.
   await cli.fill('#code', 'ZZZZZ'); await cli.click('#btnJoin');
   await until(cli, () => /No game found/.test(document.getElementById('status').textContent), 'wrong code → friendly error');
