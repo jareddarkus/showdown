@@ -1,5 +1,7 @@
 # Cube League — handoff for the next Claude session
 
+> **Latest changes (session 2, later):** (a) air control: A/D steer, W floats, S dives (`AIR_*` in `CFG`); (b) the dash/flip reset now needs the **middle of an edge** to touch a surface (3 probe points ±12 px around each edge midpoint, 6 px reach ≈ ±20° tilt; `RESET_CENTER_HALF`/`RESET_REACH`) instead of two corners — the old §2 "Flip/dash reset" description (two corners / `FLUSH_DEG`) is obsolete. Owner wants replies kept to max 2 short paragraphs (≈40 words each).
+
 > **Update (session 2):** Step B (P2P multiplayer) is **done and tested** — see §6 at the bottom. Repo rename to `cubeleague` and GitHub Pages are still **manual** (the proxy returns 403 on settings writes: `PATCH /repos/...` rename → 403 again this session). Steps C (Supabase) and D remain.
 
 

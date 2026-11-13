@@ -21,7 +21,7 @@ No aim input → the dash goes the way the white dot on your cube points.
 - Everything collides: walls, floating blocks, pushable crates, other cubes.
 - Every cube has 3 hearts. A dash hits only while the **thin blue outline** is on your cube.
 - A hit reveals the target's hearts to everyone for 2 seconds. Your own hearts are always in the top-right corner.
-- **Dash reset:** touch a surface with two corners at once (a flush face contact, ~8° tolerance) and you get your dash back.
+- **Dash reset:** touch a surface with the middle of one of your edges (about the centre 40%, roughly ±20° of tilt) and you get your dash back. Corners alone don't count.
 
 ## Multiplayer (host / join, peer-to-peer)
 

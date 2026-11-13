@@ -88,4 +88,25 @@ ok('air control: W lands slower, S lands faster, A/D steer', () => {
   assert(r.x > base.x + 100 && l.x < base.x - 100, `steer (${l.x | 0} / ${base.x | 0} / ${r.x | 0})`);
   assert(r.x - 250 < 300, 'air speed capped below ground roll');
 });
+
+// Dash reset = middle of an edge touches a surface; corners alone don't count.
+function resetAt(deg) {
+  const M = require('../lib/matter.min.js');
+  const sim = S.create();
+  const f = sim.addFighter({ id: 1, name: 'a', team: 1, at: { x: 250, y: 500 } });
+  const th = deg * Math.PI / 180, h = CFG.CUBE / 2;
+  M.Body.setStatic(f.body, true);                 // freeze it so we test the detection, not the physics
+  M.Body.setAngle(f.body, th);
+  M.Body.setPosition(f.body, { x: 250, y: CFG.H - h * (Math.abs(Math.cos(th)) + Math.abs(Math.sin(th))) + 0.5 });
+  f.canDash = false; f.lockout = 0; f.flatT = -1;
+  sim.step(); sim.step();
+  return f.canDash;
+}
+ok('dash reset: flat edge and small tilts reset; corner-first (30°, 45°) does not', () => {
+  assert.strictEqual(resetAt(0), true, '0°');
+  assert.strictEqual(resetAt(10), true, '10°');
+  assert.strictEqual(resetAt(-10), true, '-10°');
+  assert.strictEqual(resetAt(30), false, '30°');
+  assert.strictEqual(resetAt(45), false, '45°');
+});
 console.log(n + ' tests passed');
