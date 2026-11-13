@@ -9,7 +9,7 @@ A minimalist, physics-based 2D arena game where you are a cube.
 | Action | Keyboard | PS4 / gamepad |
 | --- | --- | --- |
 | Roll on ground / steer in air | `A` / `D` | Left stick left / right |
-| Fall slower / faster in the air | `W` / `S` | Left stick up / down |
+| Fall slower (`W`) / **fast fall** (`S` while descending, Smash-style: snaps to a faster fall until you land) | `W` / `S` | Left stick up / down |
 | **Jump** off anything you touch, or **dash** from the void (nothing touched) | `Space` | R1 |
 | Aim a jump or dash | `W` `A` `S` `D` | Either stick (right overrides left) |
 | Reset (practice only) | `R` | Options |

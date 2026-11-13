@@ -80,6 +80,26 @@ function airRun(inp) {
   for (; t < 400; t++) { sim.step(); if (f.sinceFloor < 0.01) break; }
   return { t, x: f.body.position.x, vy: f.body.velocity.y };
 }
+ok('fast fall (Smash-style): S while descending snaps to FAST_FALL_V and holds until landing; W floats; normal fall is capped', () => {
+  const sim = S.create();
+  const f = sim.addFighter({ id: 1, name: 'a', team: 1, at: { x: 250, y: 100 } });
+  let maxNormal = 0;
+  for (let i = 0; i < 80; i++) { sim.step(); maxNormal = Math.max(maxNormal, f.body.velocity.y); }
+  assert(maxNormal <= CFG.FALL_MAX + 0.6, 'normal terminal speed ' + maxNormal.toFixed(1));
+  sim.setInput(1, { my: 1 });
+  sim.step(); sim.step();
+  assert(f.fastFall && Math.abs(f.body.velocity.y - CFG.FAST_FALL_V) < 0.5, 'snapped to fast fall speed: ' + f.body.velocity.y.toFixed(1));
+  sim.setInput(1, {});                                    // let go: it persists, like Smash
+  for (let i = 0; i < 5; i++) sim.step();
+  assert(f.fastFall && f.body.velocity.y > CFG.FAST_FALL_V - 0.5, 'persists after releasing down');
+  assert(sim.drainEvents().some(e => e.e === 'fastfall'), 'emits a fastfall event');
+  for (let i = 0; i < 200 && f.fastFall; i++) sim.step();
+  assert(!f.fastFall, 'ends on landing');
+  // Not while rising: pressing S on the way up does nothing until you start descending.
+  const g = S.create().addFighter({ id: 9, name: 'b', team: 1, at: { x: 250, y: CFG.H - 60 } });
+  assert(!g.fastFall);
+});
+
 ok('air control: W lands slower, S lands faster, A/D steer', () => {
   const base = airRun({}), w = airRun({ my: -1 }), s = airRun({ my: 1 });
   assert(w.t > base.t + 8, `W slower (${w.t} vs ${base.t})`);

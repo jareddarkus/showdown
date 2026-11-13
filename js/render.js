@@ -62,6 +62,7 @@
           burst(ev.x, ev.y, teamColor(ev.team), 10, 5);
           if (ev.id !== myId) floater('−1', ev.x, ev.y - CFG.CUBE / 2 - 24, '#d9342b');
           break;
+        case 'fastfall': burst(ev.x, ev.y - CFG.CUBE * 0.45, '#7b6cff', 7, 2.2); break;   // little blue-purple puff, like Smash
         case 'die': burst(ev.x, ev.y, teamColor(ev.team), 30, 8); reveal.delete(ev.id); break;
         default: break;
       }

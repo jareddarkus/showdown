@@ -25,14 +25,15 @@
     AIR_SPIN_DAMP: 0.994,
     AIR_ACCEL_X: 0.34,             // px/step² sideways push with A/D (or left stick) in the air
     AIR_MAX_X: 5.6,                // px/step (~340 px/s) – a bit slower than rolling on the ground (~415 px/s)
-    AIR_FLOAT: 0.26,               // px/step² of lift with W  (gravity is ~0.44) → fall noticeably slower
-    AIR_DIVE: 0.36,                // px/step² of extra pull with S → fall noticeably faster
+    FALL_MAX: 12,                  // px/step (~720 px/s) normal terminal fall speed
+    FALL_SLOW: 7,                  // px/step terminal fall speed while holding W (float down)
+    FAST_FALL_V: 19,               // px/step (~1140 px/s ≈ 1.6× FALL_MAX): Smash-style fast fall. Down while descending snaps to this.
+    FALL_DECEL: 1.2,               // px/step² how quickly an over-speed fall (e.g. after a dash) eases back to the cap
     DASH_COOLDOWN: 0.25,           // s after a dash starts before the next dash can start (plain timer, independent of resets and of button presses)
     PRESS_BUFFER: 0.15,            // s a Space press stays queued if it can't act yet (so mashing works; it never extends the cooldown)
     RESET_CENTER_HALF: 17,         // px either side of an edge's midpoint that count as "the middle of the edge" (≈42% of the edge)
     RESET_REACH: 8,                // px beyond the edge the surface may be and still count as touching (≈ up to 20° of tilt)
     JUMP_AIM_MAX_DEG: 60,          // an aimed jump can lean at most this far from the surface normal you jump off
-    AIR_VMAX_Y: 16,                // px/step cap on fall speed while diving
     COYOTE: 0.30,                  // s you can still jump after leaving a floor
     RESET_LOCKOUT: 0.12,           // s after a jump/dash during which resets are ignored
     HEARTS: 3,
@@ -121,7 +122,7 @@
         canJump: true, canDash: true, sinceFloor: 0, sinceContact: 0, lastNs: [{ x: 0, y: -1 }],
         dashT: 0, dashDir: { x: 1, y: 0 }, dashHit: new Set(),
         lockout: 0, contacts: [],
-        inp: { rot: 0, mx: 0, my: 0, ax: 0, ay: 0, aim: false }, pendingSpace: false, pressT: 0, dashCd: 0,
+        inp: { rot: 0, mx: 0, my: 0, ax: 0, ay: 0, aim: false }, pendingSpace: false, pressT: 0, dashCd: 0, fastFall: false,
         stats: { hits: 0, kills: 0, deaths: 0, resets: 0 },
       };
       body.fighter = f;
@@ -147,7 +148,7 @@
       Body.setAngularVelocity(f.body, 0);
       Object.assign(f, {
         hp: CFG.HEARTS, respawnAt: -1, alive: true,
-        canJump: true, canDash: true, dashT: 0, lockout: 0, dashCd: 0, pressT: 0, pendingSpace: false, sinceContact: 0, sinceFloor: 0, contacts: [],
+        canJump: true, canDash: true, dashT: 0, lockout: 0, dashCd: 0, pressT: 0, pendingSpace: false, fastFall: false, sinceContact: 0, sinceFloor: 0, contacts: [],
       });
       f.dashHit.clear();
       f.rs++;
@@ -215,7 +216,7 @@
       const v = f.body.velocity;
       const add = Math.max(CFG.JUMP_V - (v.x * d.x + v.y * d.y), CFG.JUMP_V * 0.6);
       Body.setVelocity(f.body, { x: v.x + d.x * add, y: v.y + d.y * add });
-      f.sinceContact = 99; f.canJump = false;
+      f.sinceContact = 99; f.canJump = false; f.fastFall = false;
       f.lockout = CFG.RESET_LOCKOUT;
     }
 
@@ -233,7 +234,7 @@
       f.dashDir = dir;
       Body.setVelocity(f.body, { x: dir.x * CFG.DASH_V, y: dir.y * CFG.DASH_V });
       Body.setAngularVelocity(f.body, f.body.angularVelocity * 0.4);
-      f.dashT = CFG.DASH_WINDOW;
+      f.dashT = CFG.DASH_WINDOW; f.fastFall = false;
       f.dashHit.clear();
       f.canDash = false;
       f.lockout = CFG.RESET_LOCKOUT;
@@ -269,16 +270,28 @@
           else if (f.pressT <= 0) f.pendingSpace = false;     // nothing became possible in time: drop the press
         }
       }
-      // Air control (not while dashing): A/D steer sideways, W floats down slower, S dives faster.
+      // Air control (not while dashing). A/D steer sideways.
       if (f.dashT <= 0 && f.sinceFloor > 0.04 && !f.bot) {
-        const v = b.velocity;
-        let vx = v.x, vy = v.y;
-        const ax = f.inp.mx, ay = f.inp.my;
+        const v = b.velocity, ax = f.inp.mx;
+        let vx = v.x;
         if (ax > 0 && vx < CFG.AIR_MAX_X) vx = Math.min(CFG.AIR_MAX_X, vx + CFG.AIR_ACCEL_X * ax);
         else if (ax < 0 && vx > -CFG.AIR_MAX_X) vx = Math.max(-CFG.AIR_MAX_X, vx + CFG.AIR_ACCEL_X * ax);
-        if (ay < 0) vy -= CFG.AIR_FLOAT * -ay * (vy > 0 ? 1 : 0);          // only slows a fall, never launches you up
-        else if (ay > 0 && vy < CFG.AIR_VMAX_Y) vy = Math.min(CFG.AIR_VMAX_Y, vy + CFG.AIR_DIVE * ay);
-        if (vx !== v.x || vy !== v.y) Body.setVelocity(b, { x: vx, y: vy });
+        if (vx !== v.x) Body.setVelocity(b, { x: vx, y: v.y });
+      }
+
+      // Fall speed (not while dashing). Normal terminal speed; W lowers it; S while already descending = FAST FALL
+      // (Smash Bros style): fall speed snaps up to FAST_FALL_V and stays there until you touch something, jump, dash or are hit.
+      if (f.fastFall && b.velocity.y < 0) f.fastFall = false;                    // bounced upward: over
+      if (f.dashT <= 0 && f.sinceFloor > 0.04) {
+        let vy = b.velocity.y;
+        if (!f.bot && !f.fastFall && f.inp.my > 0.5 && vy > 0 && f.sinceContact > 0.04) {
+          f.fastFall = true;
+          emit({ e: 'fastfall', id: f.id, x: r1(b.position.x), y: r1(b.position.y) });
+        }
+        const cap = f.fastFall ? CFG.FAST_FALL_V : (f.inp.my < -0.5 && !f.bot ? CFG.FALL_SLOW : CFG.FALL_MAX);
+        if (f.fastFall) vy = cap;                                                // snap, then hold
+        else if (vy > cap) vy = Math.max(cap, vy - CFG.FALL_DECEL);
+        if (vy !== b.velocity.y) Body.setVelocity(b, { x: b.velocity.x, y: vy });
       }
 
       // While dashing, ignore gravity so the tackle flies straight.
@@ -289,7 +302,7 @@
     }
 
     function hit(attacker, target) {
-      target.hp -= 1;
+      target.hp -= 1; target.fastFall = false;
       attacker.stats.hits++;
       const p = target.body.position;
       const d = attacker.dashDir;
@@ -316,6 +329,7 @@
       // Touching anything with any part of the cube: you can jump off it for a moment.
       // Touching it with the middle of an edge: your dash comes back too.
       if (f.contacts.length) {
+        f.fastFall = false;
         if (f.contacts.some(c => c.n.y < -0.65)) f.sinceFloor = 0;        // standing on something (air control / spin damping)
         if (f.lockout <= 0) {
           f.sinceContact = 0; f.canJump = true;
