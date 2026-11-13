@@ -335,6 +335,14 @@
           f.sinceContact = 0; f.canJump = true;
           f.lastNs = f.contacts.map(c => c.n);
           const flat = f.contacts.filter(c => c.flush);
+          // Touching another cube with the middle of your edge gives THEM a free dash reset too (enemy or ally).
+          for (const c of flat) {
+            const o = c.other.fighter;
+            if (o && o.alive && !o.canDash) {
+              o.canDash = true; o.stats.resets++;
+              emit({ e: 'reset', id: o.id, x: r1(o.body.position.x), y: r1(o.body.position.y) });
+            }
+          }
           if (flat.length && !f.canDash) {
             f.canDash = true;
             if (!flat.some(c => c.n.y < -0.65)) {                            // landings on a floor are quiet; everything else is a "reset"
