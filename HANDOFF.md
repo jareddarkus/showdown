@@ -1,5 +1,8 @@
 # Cube League — handoff for the next Claude session
 
+> **Update (session 2):** Step B (P2P multiplayer) is **done and tested** — see §6 at the bottom. Repo rename to `cubeleague` and GitHub Pages are still **manual** (the proxy returns 403 on settings writes: `PATCH /repos/...` rename → 403 again this session). Steps C (Supabase) and D remain.
+
+
 Read this whole file first. It contains the owner's vision, what already exists, what is blocked, and what to do next.
 The owner (GitHub: `jareddarkus`) has granted **full permission** to create/modify/delete repos, Supabase projects, tables, etc. when the tools allow it. Act autonomously; ask only if truly blocked.
 
@@ -148,3 +151,30 @@ The owner connected Supabase and granted rights. Tools are available as `mcp__Su
 - The owner writes casually (voice-dictated); interpret intent generously, but state your interpretation (e.g., "Cube Lake" → Cube League).
 - Don't commit secrets. Anon/publishable Supabase keys are OK in client code **only with RLS enabled**.
 - Don't create PRs unless asked; the owner is fine with pushing directly to the default branch of this repo.
+
+---
+
+## 6. Session 2 — what changed (multiplayer)
+
+**Architecture (all buildless, plain `<script>` tags, load order matters):** `matter.min.js` → `peerjs.min.js` → `sim.js` → `net.js` → `render.js` → `game.js`.
+
+- `js/sim.js` — pure simulation, `CubeSim.create({bots})`. Fighters are keyed by id (`sim.addFighter/removeFighter/setInput/pressSpace/respawn/step`). It emits discrete **events** (`dash`, `reset`, `hit`, `die`, `spawn`; drain with `sim.drainEvents()`), and exposes `snapshot()` (public positions, **no hearts**) and `privateState(id)` (that player's hearts/jump/dash). Also tracks `score` (eliminations per team) and per-fighter `stats` {hits,kills,deaths,resets} — ready for the Supabase end-of-match report. `LAYOUT` (solids + crates) is shared so clients draw the map without running Matter. Runs in Node: `require('./js/sim.js')`.
+- `js/net.js` — `CubeNet.createHost({sim,name,...})` / `CubeNet.joinGame({code,...})`. Peer id = `cubeleague-` + 5-char code. JSON serialization, reliable channel. Client sends `{rot,ax,ay,aim,sp}` on change + 250 ms heartbeat (`sp` = running Space-press counter, so presses aren't lost/doubled). Host broadcasts at 30 Hz (every 2nd step) `{k:'snap', s, me, ev}`; `me` is per-recipient. Host drops peers silent >8 s, clamps/sanitises all client input (`sim.setInput`), and sanitises names. Max 6 players; teams auto-balance. Override the broker with `?peerhost=&peerport=&peerpath=&peersecure=1` (used by tests).
+- `js/render.js` — draws from a `view` object; effects (particles, hit flash, 2 s heart reveal) are driven by sim events, identical on host/solo/client.
+- `js/game.js` — input (keyboard+gamepad, unchanged mapping), modes `solo|host|client`, client-side snapshot interpolation (100 ms delay, clock offset tracking, snap on respawn), menu UI, `?join=CODE` auto-join. `window.__game` debug hook now exposes `sim, mode, myId, host, client, net, roster, startSolo/startHost/startClient`.
+- **Practice (solo) mode** is the default on load (player + 3 stationary bots, `R` respawn). In a hosted match there are no bots and `R` is disabled.
+
+**Tests:** `node test/sim.test.js` (pure sim, 5 tests) and `node test/e2e.js` (27 checks: starts a local PeerJS broker + static server, drives a host page and a client page in headless Chromium: join, team balance, input, jump, dash hit, hearts secrecy on the wire, leave/rejoin/host-leaves, wrong code). Needs `npm i --no-save peer` (Playwright is preinstalled in the cloud container; use `NODE_PATH`). The container has no IPv6, so bind servers to `127.0.0.1`.
+
+**Gameplay tweak:** `COYOTE` 0.10 → 0.17 s. While rolling at full speed the cube hops between corners and floor-contact gaps reach ~0.13 s, so jump silently became a dash ~always when pressed mid-roll. Now 0/40 misfires.
+
+**Known gaps / next:**
+1. **No client-side prediction** — a client's own cube is rendered ~100 ms interpolation + RTT behind its input. Biggest feel issue for a dash game. Idea: run Matter on the client for the local cube only (statics known from `LAYOUT`, others/crates as snapshot-driven kinematic bodies) and reconcile to host snapshots.
+2. **Host tab must stay foreground** (rAF/timers throttle in background tabs → match freezes). Possible fix: drive the host sim from a Web Worker timer.
+3. **TURN not configured** — PeerJS defaults to Google STUN only; symmetric/strict NATs will fail to connect. Add a free/cheap TURN to `peerOptions()` in `net.js` (`config.iceServers`) if players report this.
+4. **No win condition**: only an elimination scoreboard (bottom centre). Ask the owner (round format / first-to-N / etc.).
+5. **Host can cheat** (authoritative P2P) — as noted in Step C, use multi-party result reporting.
+6. Not tested with a physical PS4 pad.
+7. Touch controls, bots that fight back, sound: untouched.
+
+**Repo name / Pages:** still `jareddarkus/showdown`. The README now links to `https://jareddarkus.github.io/cubeleague/`, which only works after the owner renames the repo to `cubeleague` (Settings → General) and enables Pages (Settings → Pages → deploy from branch `master` `/`). Work this session was pushed to branch `claude/dreamy-curie-pd0bm7` (session rules); merge to `master` for Pages to serve it. No PR was opened.
