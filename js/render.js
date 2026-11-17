@@ -21,7 +21,7 @@
   const { W, H } = CFG;
   const T_FONT = 'Unbounded, system-ui, sans-serif', B_FONT = 'Lexend, system-ui, sans-serif';
   const COLORS = {
-    solid: '#2a3835', box: '#ddd6c4',
+    solid: '#2a3835', solidTop: '#566a65', box: '#ddd6c4',
     team1: '#ff6a4d', team2: '#f2b632', ability1: '#ff9c88', ability2: '#f6cf72',
     blue: '#1e88ff', ink: '#23232b', hitFlash: '#23232b', spark: '#ffffff',
   };
@@ -285,6 +285,48 @@
       ctx.fillStyle = g; ctx.fillRect(0, y0, cw, y1 - y0);
     }
 
+    // Contact shadows: every cube, crate and ability square drops a flat shadow on the nearest block directly below it.
+    // The shadow is the caster's footprint clipped to that block's top; it narrows and fades the higher the caster is.
+    const tiltOf = a => { const q = ((a % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2); return Math.min(q, Math.PI / 2 - q); };
+    function drawShadows(view) {
+      const surf = [];   // [left, right, top, darkness]
+      for (const r of LAYOUT.shell) surf.push([r[0] - r[2] / 2, r[0] + r[2] / 2, r[1] - r[3] / 2, 0.62]);
+      for (const r of LAYOUT.solids) surf.push([r[0] - r[2] / 2, r[0] + r[2] / 2, r[1] - r[3] / 2, 0.62]);
+      const casters = [];
+      view.crates.forEach((c, i) => {
+        const d = LAYOUT.crates[i], co = Math.abs(Math.cos(c[2])), si = Math.abs(Math.sin(c[2]));
+        const hw = (d[2] * co + d[3] * si) / 2, hh = (d[2] * si + d[3] * co) / 2;
+        casters.push([c[0] - hw, c[0] + hw, c[1] + hh]);
+        if (tiltOf(c[2]) < 0.12) surf.push([c[0] - hw, c[0] + hw, c[1] - hh, 0.30]);      // a tilted crate has no flat top to land a shadow on
+      });
+      for (const a of view.abilities || []) {
+        const sz = CFG.ABILITY_SIZE * a[4]; if (sz < 12) continue;
+        const h = sz / 2 * (Math.abs(Math.cos(a[3])) + Math.abs(Math.sin(a[3])));
+        casters.push([a[1] - h, a[1] + h, a[2] + h]);
+        if (tiltOf(a[3]) < 0.12) surf.push([a[1] - h, a[1] + h, a[2] - h, 0.30]);
+      }
+      for (const f of view.fighters) {
+        if (!f.alive) continue;
+        const h = CFG.CUBE / 2 * (Math.abs(Math.cos(f.a)) + Math.abs(Math.sin(f.a)));
+        casters.push([f.x - h, f.x + h, f.y + h]);
+      }
+      for (const c of casters) {
+        let best = null;
+        for (const s of surf) {
+          if (s[2] < c[2] - 2 || Math.min(c[1], s[1]) - Math.max(c[0], s[0]) < 4) continue;   // must be below, and overlap sideways
+          if (!best || s[2] < best[2]) best = s;
+        }
+        if (!best) continue;
+        const gap = Math.max(0, best[2] - c[2]), fade = Math.max(0, 1 - gap / (CFG.CUBE * 6));
+        if (fade < 0.03) continue;
+        let x1 = Math.max(c[0], best[0]), x2 = Math.min(c[1], best[1]);
+        const inset = Math.min((x2 - x1) / 2 - 3, gap * 0.1);                     // farther away → a smaller shadow
+        x1 += inset; x2 -= inset;
+        ctx.fillStyle = `rgba(6,14,12,${(best[3] * (0.35 + 0.65 * fade)).toFixed(3)})`;
+        ctx.fillRect(x1, best[2], x2 - x1, 5 + 6 * fade);
+      }
+    }
+
     function drawWorld(view) {
       const z = 1 / cam.scale;
       ctx.fillStyle = 'rgba(255,106,77,.07)'; ctx.fillRect(0, 0, 520, H);
@@ -293,6 +335,8 @@
       ctx.fillStyle = COLORS.solid;
       for (const r of LAYOUT.shell) { rectPath(r[0], r[1], r[2], r[3]); ctx.fill(); }
       for (const r of LAYOUT.solids) { rectPath(r[0], r[1], r[2], r[3]); ctx.fill(); }
+      ctx.fillStyle = COLORS.solidTop;                                                       // a lit top edge: gives shadows something to darken
+      for (const r of LAYOUT.shell.slice(0, 1).concat(LAYOUT.solids)) ctx.fillRect(r[0] - r[2] / 2, r[1] - r[3] / 2, r[2], Math.min(7, r[3]));
       view.crates.forEach((c, i) => {
         const d = LAYOUT.crates[i];
         rectPath(c[0], c[1], d[2], d[3], c[2]);
@@ -305,6 +349,7 @@
         if (s < 0.5) continue;
         rectPath(a[1], a[2], s, s, a[3]); ctx.fillStyle = a[5] === 1 ? COLORS.ability1 : COLORS.ability2; ctx.fill();
       }
+      drawShadows(view);
       // "No room here" ghost: a dashed red square where the ability would have gone.
       for (const g of ghosts) {
         const t = (view.now - g.from) / (g.until - g.from);
