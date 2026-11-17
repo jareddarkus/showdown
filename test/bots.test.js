@@ -42,7 +42,7 @@ ok('a hard bot hunts down and hits an idle enemy', () => {
   assert(hit, 'bot never landed a hit on a stationary target in 40 s');
 });
 
-ok('bots only ever hit the other team, hearts stay private, nobody escapes the arena (3v3, 3 min)', () => {
+ok('bots only ever hit the other team, the public snapshot never leaks private state, nobody escapes the arena (3v3, 3 min)', () => {
   const { sim } = threeVThree(4, 'normal');
   let hits = 0;
   for (let i = 0; i < 60 * 180; i++) {
@@ -54,7 +54,7 @@ ok('bots only ever hit the other team, hearts stay private, nobody escapes the a
   }
   assert(hits >= 30, 'expected a lively match, got ' + hits + ' hits');
   assert(sim.score[1] > 0 && sim.score[2] > 0, 'both teams should score: ' + JSON.stringify(sim.score));
-  assert(!/hp|heart/i.test(JSON.stringify(sim.snapshot())), 'snapshot must never contain hearts');
+  assert(!/dash|jump|cooldown/i.test(JSON.stringify(sim.snapshot())), 'snapshot must never contain private state');
 });
 
 ok('dead bots respawn and keep playing', () => {

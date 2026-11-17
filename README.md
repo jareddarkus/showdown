@@ -12,7 +12,8 @@ A minimalist, physics-based 2D arena game where you are a cube.
 | Fall slower (`W`) / **fast fall** (`S` while descending, Smash-style: snaps to a faster fall until you land) | `W` / `S` | Left stick up / down |
 | **Jump** off anything you touch, or **dash** from the void (nothing touched) | `Space` | R1 |
 | Aim a jump or dash | `W` `A` `S` `D` | Either stick (right overrides left) |
-| **Ability:** spawn a temporary physics square beside you (left / right / above / below, only if there's room) | `←` `→` `↑` `↓` | D-pad |
+| **Ability** (depends on your character, see below) | `←` `→` `↑` `↓` | D-pad |
+| Choose character | menu buttons or `1` `2` `3` | |
 | Reset (practice only) | `R` | Options |
 | Bot skill: off / easy / normal / hard (practice) | `B` or the *Bots* button | |
 | Hide help / show FPS | `H` / `F` | |
@@ -24,7 +25,7 @@ No aim → a jump goes straight off the surface and a dash goes the cube's own f
 ## Mechanics
 
 - Everything collides: walls, floating blocks, pushable crates, other cubes.
-- Every cube has 3 hearts. A dash hits only while the **white outline** is on your cube.
+- Every cube has 3 hearts. A dash only hurts where the **white line** is on your cube (see below).
 - A hit reveals the target's hearts to everyone for 2 seconds. Your own hearts are always in the top-right corner.
 - **Dash reset:** touch a surface with the middle of one of your edges (about the centre 40%, roughly ±20° of tilt) and you get your dash back — walls, floors, ceilings, crates and other cubes all count. Any other touch (a corner) still lets you jump but does not restore the dash. Touching another cube with your edge also gives *them* a free dash reset (enemy or ally). Corners alone don't count.
 
@@ -36,6 +37,13 @@ No aim → a jump goes straight off the surface and a dash goes the cube's own f
 - Keep the host's tab in the foreground (browsers throttle background tabs). Strict NATs may need a TURN server (not configured yet).
 - **3-minute match.** The clock and the RED / YELLOW scoreboards (eliminations) sit top-centre. At 0:00 the team with more eliminations wins (equal = draw), a banner shows for 8 s, then a fresh match starts.
 - **Hearts:** 3 per cube. After 5 s without being hit you regain ½ heart every 2 s; a new hit restarts the wait.
+- **Characters** (pick one in the menu; it applies at your next respawn, instantly in practice):
+  - **Cube** — 3 hearts. Arrow keys pop a temporary *physics* block beside you (if there is room).
+  - **Titan** — big (112 px), 5 hearts, a bit slower, and its dash hits for longer and reaches further. Any arrow key heals the most hurt ally nearby by 1 heart (1.5 s cooldown).
+  - **Mason** — like the Cube, but its blocks are solid black and *static* (they never move).
+  The corner HUD shows your ability's cooldown.
+- **Dash hits** only count with the part of your cube that is heading the way you dash: a thick white line one edge long, wrapping round a corner when your cube is turned (e.g. 30 % of one edge, 70 % of the next) and sliding as it spins. Scraping a target with a side or the back does nothing.
+- **Hearts** hang above any cube that is hurt (everyone sees them) and fade away once it is back at full health. Yours are in the top-right corner.
 - **Ability squares:** a 64 px physics square that grows in (0.5 s, small bounce), lasts 2 s, then shrinks away. Use it as a wall, a stepping stone, or a surface for dash resets.
 
 ## Layout & tests

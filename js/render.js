@@ -2,11 +2,12 @@
  * solo/host sim directly and a client's interpolated snapshots.
  *
  * view = {
- *   now,                       // seconds (monotonic, local clock) – used for heart-reveal timeouts and animations
- *   fighters: [{id,x,y,a,alive,team,name}],
+ *   now,                       // seconds (monotonic, local clock) – used for animations
+ *   fighters: [{id,x,y,a,alive,team,name,size,hp,max,cls}],   // hp/max: hearts hang above a cube while hp < max
+
  *   crates:   [[x,y,a], ...],  // same order as LAYOUT.crates
- *   abilities:[[id,x,y,a,scale,team], ...],   // the temporary arrow-key squares; scale animates 0 → ~1.07 → 1 → … → 0
- *   me:       {id,hp,jump,dash,dashT,alive} | null,   // YOUR private state only (hp can be a half: 2.5)
+ *   abilities:[[id,x,y,a,scale,team,kind], ...],   // the temporary arrow-key squares (kind 1 = Mason's static black block); scale animates 0 → ~1.07 → 1 → … → 0
+ *   me:       {id,hp,max,jump,dash,dashT,dx,dy,ab,abMax,cls,alive} | null,   // YOUR private state only (hp can be a half: 2.5; dx,dy = dash direction; ab = ability cooldown left)
  *   aim:      {active,x,y},
  *   score:    [team1, team2] | null,
  *   match:    {left, over, winner, overLeft} | null,  // seconds left, finished?, winning team (0 = draw), seconds to the next match
@@ -23,7 +24,7 @@
   const COLORS = {
     solid: '#2a3835', solidTop: '#566a65', box: '#46675f', boxTop: '#73968b',
     team1: '#ff6a4d', team2: '#f2b632', ability1: '#ff9c88', ability2: '#f6cf72',
-    dash: '#ffffff', ink: '#23232b', hitFlash: '#23232b', spark: '#ffffff',
+    dash: '#ffffff', heal: '#ff5f86', wall: '#0f1514', ink: '#23232b', hitFlash: '#23232b', spark: '#ffffff',
   };
   const teamColor = t => (t === 1 ? COLORS.team1 : COLORS.team2);
   const TEAM_NAME = { 1: 'RED', 2: 'YELLOW' };
@@ -86,8 +87,8 @@
     const ctx = canvas.getContext('2d', { alpha: false });   // opaque canvas = cheaper compositing
     let dpr = 1, cw = 0, ch = 0, dprCap = 2;
     const cam = { x: 0, y: 0, scale: 1 };
-    const particles = [], floaters = [], ghosts = [];
-    const reveal = new Map();   // id -> { hp, until }   (heart reveal after a hit)
+    const particles = [], floaters = [], ghosts = [], beams = [], rings = [];
+    const heartA = new Map();   // id -> 0..1 opacity of the hearts above a cube: 1 while it is hurt, easing to 0 once it is back at full health
     const flash = new Map();    // id -> until
     let goAt = null;            // when the last match started (drives the "GO!" pop-up)
 
@@ -117,15 +118,21 @@
           if (ev.id === myId) floater('DASH RESET', ev.x, ev.y - CFG.CUBE / 2 - 28, COLORS.dash);
           break;
         case 'hit':
-          reveal.set(ev.id, { hp: ev.hp, until: now + CFG.HEART_REVEAL });
           flash.set(ev.id, now + 0.2);
           burst(ev.x, ev.y, COLORS.spark, 10, 4);
           burst(ev.x, ev.y, teamColor(ev.team), 10, 5);
           if (ev.id !== myId) floater('−1', ev.x, ev.y - CFG.CUBE / 2 - 24, '#d9342b');
           break;
         case 'fastfall': burst(ev.x, ev.y - CFG.CUBE * 0.45, '#7b6cff', 7, 2.2); break;   // little blue-purple puff, like Smash
-        case 'die': burst(ev.x, ev.y, teamColor(ev.team), 30, 8); reveal.delete(ev.id); break;
-        case 'ability': burst(ev.x, ev.y, ev.team === 1 ? COLORS.ability1 : COLORS.ability2, 8, 3); break;
+        case 'die': burst(ev.x, ev.y, teamColor(ev.team), 30, 8); heartA.delete(ev.id); break;
+        case 'ability': burst(ev.x, ev.y, ev.kind === 1 ? '#0f1514' : (ev.team === 1 ? COLORS.ability1 : COLORS.ability2), 8, 3); break;
+        case 'heal':                                                   // a Titan healed an ally: a pink beam, a ring, and a +1
+          beams.push({ x1: ev.x, y1: ev.y, x2: ev.tx, y2: ev.ty, from: now, until: now + 0.45 });
+          rings.push({ x: ev.tx, y: ev.ty, from: now, until: now + 0.6 });
+          burst(ev.tx, ev.ty, COLORS.heal, 12, 3.5);
+          floater('+1', ev.tx, ev.ty - 70, COLORS.heal);
+          break;
+        case 'noheal': if (ev.id === myId) ghosts.push({ round: true, x: ev.x, y: ev.y, size: ev.r * 2, until: now + 0.45, from: now }); break;   // "nobody to heal in range"
         case 'abfail': if (ev.id === myId) ghosts.push({ x: ev.x, y: ev.y, size: ev.size, until: now + 0.4, from: now }); break;   // "no room here"
         case 'start': goAt = now; break;                    // a new match begins → "GO!"
         case 'spawn': break;
@@ -154,12 +161,12 @@
       ctx.closePath();
     }
     // hp can be a half: 2.5 → two full hearts and one half.
-    function drawHearts(x, y, hp, s, alpha = 1, empty = 'rgba(35,35,43,.22)') {
+    function drawHearts(x, y, hp, s, alpha = 1, empty = 'rgba(35,35,43,.22)', count = CFG.HEARTS) {
       ctx.save();
       ctx.globalAlpha = alpha;
       const gap = s * 2.7;
-      for (let i = 0; i < CFG.HEARTS; i++) {
-        const hx = x + (i - (CFG.HEARTS - 1) / 2) * gap, fill = Math.max(0, Math.min(1, hp - i));
+      for (let i = 0; i < count; i++) {
+        const hx = x + (i - (count - 1) / 2) * gap, fill = Math.max(0, Math.min(1, hp - i));
         heartPath(hx, y, s); ctx.fillStyle = empty; ctx.fill();
         if (fill > 0) {
           ctx.save();
@@ -328,7 +335,7 @@
       }
       for (const f of view.fighters) {
         if (!f.alive) continue;
-        const h = CFG.CUBE / 2 * (Math.abs(Math.cos(f.a)) + Math.abs(Math.sin(f.a)));
+        const h = (f.size || CFG.CUBE) / 2 * (Math.abs(Math.cos(f.a)) + Math.abs(Math.sin(f.a)));
         casters.push([f.x - h, f.x + h, f.y + h]);
       }
       for (const c of casters) {
@@ -371,7 +378,7 @@
       for (const a of view.abilities || []) {
         const s = CFG.ABILITY_SIZE * Math.max(0, a[4]);
         if (s < 0.5) continue;
-        rectPath(a[1], a[2], s, s, a[3]); ctx.fillStyle = a[5] === 1 ? COLORS.ability1 : COLORS.ability2; ctx.fill();
+        rectPath(a[1], a[2], s, s, a[3]); ctx.fillStyle = a[6] === 1 ? COLORS.wall : (a[5] === 1 ? COLORS.ability1 : COLORS.ability2); ctx.fill();
       }
       drawShadows(view);
       // "No room here" ghost: a dashed red square where the ability would have gone.
@@ -379,42 +386,58 @@
         const t = (view.now - g.from) / (g.until - g.from);
         if (t < 0 || t > 1) continue;
         ctx.save(); ctx.globalAlpha = 1 - t; ctx.setLineDash([8 * z, 6 * z]); ctx.lineWidth = 2.5 * z; ctx.strokeStyle = '#d9342b';
-        rectPath(g.x, g.y, g.size, g.size); ctx.stroke(); ctx.restore();
+        if (g.round) { ctx.beginPath(); ctx.arc(g.x, g.y, g.size / 2, 0, 6.2832); } else rectPath(g.x, g.y, g.size, g.size);
+        ctx.stroke(); ctx.restore();
+      }
+      // heal beams + rings
+      for (const b of beams) {
+        const t = (view.now - b.from) / (b.until - b.from); if (t < 0 || t > 1) continue;
+        ctx.save(); ctx.globalAlpha = 1 - t; ctx.lineWidth = (7 - 4 * t) * z; ctx.strokeStyle = COLORS.heal; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(b.x1, b.y1); ctx.lineTo(b.x1 + (b.x2 - b.x1) * Math.min(1, t * 2.5), b.y1 + (b.y2 - b.y1) * Math.min(1, t * 2.5)); ctx.stroke(); ctx.restore();
+      }
+      for (const r of rings) {
+        const t = (view.now - r.from) / (r.until - r.from); if (t < 0 || t > 1) continue;
+        ctx.save(); ctx.globalAlpha = (1 - t) * 0.9; ctx.lineWidth = 5 * z; ctx.strokeStyle = COLORS.heal;
+        rectPath(r.x, r.y, 70 + 90 * t, 70 + 90 * t); ctx.stroke(); ctx.restore();
       }
 
       for (const f of view.fighters) {
         if (!f.alive) continue;
-        const isMe = view.me && f.id === view.me.id;
+        const isMe = view.me && f.id === view.me.id, S_ = f.size || CFG.CUBE;
         const fl = flash.get(f.id) || 0;
-        rectPath(f.x, f.y, CFG.CUBE, CFG.CUBE, f.a);
+        rectPath(f.x, f.y, S_, S_, f.a);
         ctx.fillStyle = fl > view.now ? COLORS.hitFlash : teamColor(f.team); ctx.fill();      // flat fill, no border
+        if (f.cls === 'mason') { rectPath(f.x, f.y, S_ * 0.26, S_ * 0.26, f.a); ctx.fillStyle = COLORS.wall; ctx.fill(); }   // a Mason carries a little black block
 
         if (isMe) {
-          // Dash window: a white ring hugging the cube (with a dark rim underneath so it shows on any background). Only you see it.
+          // The part of your cube that hurts while you dash: a thick white line along the stretch of the outline the dash is heading
+          // out of — one edge long, wrapping round a corner when the cube is turned (e.g. 30 % of one edge, 70 % of the next), and sliding
+          // as the cube spins. Dark rim underneath so it shows on any background. Only you see it.
           if (view.me.dashT > 0) {
-            ctx.save(); ctx.lineJoin = 'miter';
-            rectPath(f.x, f.y, CFG.CUBE + 5, CFG.CUBE + 5, f.a);
-            ctx.lineWidth = 8 * z; ctx.strokeStyle = 'rgba(14,26,24,.45)'; ctx.stroke();
-            ctx.shadowColor = 'rgba(255,255,255,.9)'; ctx.shadowBlur = 14;
-            ctx.lineWidth = 4 * z; ctx.strokeStyle = COLORS.dash; ctx.stroke();
+            const pts = CubeSim.zonePolyline(f.x, f.y, S_, f.a, { x: view.me.dx, y: view.me.dy }, 4.5);
+            ctx.save(); ctx.lineJoin = 'miter'; ctx.lineCap = 'butt';
+            ctx.beginPath(); pts.forEach((q, i) => (i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1])));
+            ctx.lineWidth = 12 * z; ctx.strokeStyle = 'rgba(14,26,24,.5)'; ctx.stroke();
+            ctx.shadowColor = 'rgba(255,255,255,.95)'; ctx.shadowBlur = 16;
+            ctx.lineWidth = 9 * z; ctx.strokeStyle = COLORS.dash; ctx.stroke();
             ctx.restore();
           }
           if ((view.me.dash || view.me.jump) && view.aim.active) {
             ctx.save(); ctx.setLineDash([7 * z, 8 * z]); ctx.lineCap = 'butt';
             ctx.beginPath();
-            ctx.moveTo(f.x + view.aim.x * CFG.CUBE * 0.7, f.y + view.aim.y * CFG.CUBE * 0.7);
-            ctx.lineTo(f.x + view.aim.x * CFG.CUBE * 2.3, f.y + view.aim.y * CFG.CUBE * 2.3);
+            ctx.moveTo(f.x + view.aim.x * S_ * 0.7, f.y + view.aim.y * S_ * 0.7);
+            ctx.lineTo(f.x + view.aim.x * S_ * 2.3, f.y + view.aim.y * S_ * 2.3);
             ctx.lineWidth = 6 * z; ctx.strokeStyle = 'rgba(14,26,24,.4)'; ctx.stroke();
             ctx.lineWidth = 3 * z; ctx.strokeStyle = 'rgba(255,255,255,.95)'; ctx.stroke();
             ctx.restore();
           }
         } else {
-          // Others' hearts: only for 2 s after they were hit. Yours live in the top-right corner.
-          const r = reveal.get(f.id);
-          if (r && r.until > view.now) drawHearts(f.x, f.y - CFG.CUBE / 2 - 30, r.hp, 8, Math.min(1, (r.until - view.now) / 0.3));
+          // Others: their hearts hang above them while they're hurt and melt away once they're back at full health. (Yours: top-right corner.)
+          const ha = heartA.get(f.id) || 0;
+          if (ha > 0.02) drawHearts(f.x, f.y - S_ / 2 - 30, f.hp, f.max > 3 ? 7 : 8, ha, 'rgba(35,35,43,.22)', f.max || CFG.HEARTS);
           ctx.font = `400 12px ${B_FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
           ctx.fillStyle = 'rgba(35,35,43,.72)';
-          ctx.fillText(f.name, f.x, f.y - CFG.CUBE / 2 - 10);
+          ctx.fillText(f.name, f.x, f.y - S_ / 2 - 10);
         }
       }
 
@@ -499,14 +522,20 @@
     function drawHUD(view) {
       const me = view.me;
       if (me) {
-        const w = 196, h = 78, x = cw - w - 12, y = 10, sl = 16;
+        const w = 196, h = 100, x = cw - w - 12, y = 10, sl = 16;
         para(x, y, w, h, sl); ctx.fillStyle = 'rgba(35,35,43,.93)'; ctx.fill();
-        drawHearts(x + w / 2 + 4, y + 30, me.hp, 11, 1, 'rgba(255,255,255,.18)');
+        const n = me.max || CFG.HEARTS;
+        drawHearts(x + w / 2 + 4, y + 30, me.hp, n > 3 ? 9 : 11, 1, 'rgba(255,255,255,.18)', n);
         const pip = (label, on, px) => {
           para(px, y + 54, 14, 12, 4); ctx.fillStyle = on ? '#fff' : 'rgba(255,255,255,.22)'; ctx.fill();
           ctx.font = `400 11px ${B_FONT}`; ctx.textAlign = 'left'; ctx.fillStyle = on ? '#fff' : 'rgba(255,255,255,.45)'; ctx.fillText(label, px + 20, y + 65);
         };
         pip('JUMP', me.jump, x + 32); pip('DASH', me.dash, x + 112);
+        // ability: its name and a bar that fills while it cools down
+        const AB = { cube: 'BLOCK', mason: 'WALL', titan: 'HEAL' }[me.cls] || 'ABILITY', ready = !me.ab || me.ab <= 0.001, fill = ready ? 1 : 1 - me.ab / (me.abMax || 1);
+        ctx.font = `400 11px ${B_FONT}`; ctx.textAlign = 'left'; ctx.fillStyle = ready ? '#fff' : 'rgba(255,255,255,.55)'; ctx.fillText(AB, x + 32, y + 87);
+        para(x + 88, y + 77, 84, 12, 5); ctx.fillStyle = 'rgba(255,255,255,.2)'; ctx.fill();
+        ctx.save(); para(x + 88, y + 77, 84, 12, 5); ctx.clip(); ctx.fillStyle = ready ? '#fff' : 'rgba(255,255,255,.75)'; ctx.fillRect(x + 80, y + 77, 8 + 84 * fill, 12); ctx.restore();
         if (!me.alive) {
           const pw = 260, ph = 56, px = cw / 2 - pw / 2, py = ch / 2 - ph / 2;
           para(px, py, pw, ph, 18); ctx.fillStyle = COLORS.ink; ctx.fill();
@@ -526,6 +555,12 @@
       for (const t of floaters) { t.y -= 40 * dtSec; t.life -= dtSec; }
       for (let i = floaters.length - 1; i >= 0; i--) if (floaters[i].life <= 0) floaters.splice(i, 1);
       for (let i = ghosts.length - 1; i >= 0; i--) if (ghosts[i].until < view.now) ghosts.splice(i, 1);
+      for (let i = beams.length - 1; i >= 0; i--) if (beams[i].until < view.now) beams.splice(i, 1);
+      for (let i = rings.length - 1; i >= 0; i--) if (rings[i].until < view.now) rings.splice(i, 1);
+      for (const f of view.fighters) {                               // ease each cube's hearts in while it is hurt, out once it is whole again
+        const target = f.alive && f.hp < f.max ? 1 : 0, a0 = heartA.get(f.id) || 0;
+        heartA.set(f.id, a0 + (target - a0) * Math.min(1, dtSec * (target ? 14 : 3.2)));
+      }
 
       updateCamera(view, first); first = false;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -535,7 +570,7 @@
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       drawHUD(view);
     }
-    function resetEffects() { goAt = null; particles.length = 0; floaters.length = 0; ghosts.length = 0; reveal.clear(); flash.clear(); first = true; }
+    function resetEffects() { goAt = null; beams.length = 0; rings.length = 0; particles.length = 0; floaters.length = 0; ghosts.length = 0; heartA.clear(); flash.clear(); first = true; }
 
     const lowerResolution = () => { const eff = Math.min(window.devicePixelRatio || 1, dprCap); if (eff > 0.75) { dprCap = Math.max(0.75, eff - 0.5); resize(); } };
     return { draw, handleEvent, resetEffects, resize, lowerResolution, dprCap: () => Math.min(window.devicePixelRatio || 1, dprCap) };

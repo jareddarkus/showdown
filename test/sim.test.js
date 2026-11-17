@@ -6,13 +6,15 @@ let n = 0; const ok = (name, fn) => { fn(); n++; console.log('ok -', name); };
 
 const settle = (sim, steps = 120) => { for (let i = 0; i < steps; i++) sim.step(); };
 
-ok('snapshot never contains hearts', () => {
+ok('snapshot publishes each cube\'s class and hearts (damaged cubes show them) but never private state', () => {
   const sim = S.create();
-  sim.addFighter({ id: 1, name: 'a', team: 1 }); sim.addFighter({ id: 2, name: 'b', team: 2 });
+  sim.addFighter({ id: 1, name: 'a', team: 1 }); sim.addFighter({ id: 2, name: 'b', team: 2, cls: 'titan' });
   settle(sim);
-  const json = JSON.stringify(sim.snapshot());
-  assert(!/hp|heart/i.test(json));
-  assert.deepStrictEqual(Object.keys(sim.privateState(1)).sort(), ['alive', 'dash', 'dashT', 'hp', 'jump']);
+  const sn = sim.snapshot();
+  assert.deepStrictEqual(sn.f.map(r => r.length), [8, 8], 'row = [id, x, y, angle, alive, rs, class, hearts]');
+  assert.deepStrictEqual(sn.f.map(r => [r[6], r[7]]), [[0, 3], [1, 5]], 'class ids and full hearts');
+  assert(!/dash|jump|cooldown|ability/i.test(JSON.stringify(sn.f)), 'no private flags in fighter rows');
+  assert.deepStrictEqual(Object.keys(sim.privateState(1)).sort(), ['ab', 'abMax', 'alive', 'cls', 'dash', 'dashT', 'dx', 'dy', 'hp', 'jump', 'max']);
 });
 
 ok('rolling, jump then dash', () => {
@@ -270,13 +272,13 @@ ok('hearts: getting hit again restarts the 5 s wait', () => {
   while (sim.time < t1 + 5.3) sim.step();
   assert.strictEqual(b.hp, 1.5);
 });
-ok('hearts: hearts shown are fractional-safe (private state), public snapshot still has none', () => {
+ok('hearts: half hearts show up in both the private state and the public snapshot row', () => {
   const sim = S.create();
   const a = sim.addFighter({ id: 1, name: 'a', team: 1 }), b = sim.addFighter({ id: 2, name: 'b', team: 2 });
   settle(sim); strike(sim, a, b);
   const t0 = sim.time; while (sim.time < t0 + 5.5) sim.step();
   assert.strictEqual(sim.privateState(2).hp, 2.5);
-  assert(!/hp|heart/i.test(JSON.stringify(sim.snapshot())));
+  assert.strictEqual(sim.snapshot().f.find(r => r[0] === 2)[7], 2.5, 'the public row shows the half heart too');
 });
 
 // ───────────── the 3-minute match ─────────────
@@ -386,12 +388,11 @@ ok('ability: squares count as surfaces — touching one with the middle of an ed
   for (let i = 0; i < 40; i++) sim.step();
   assert(g.canDash, 'landing flat on a square gives the dash back');
 });
-ok('ability: snapshot lists squares publicly (id, x, y, angle, scale, team); no hearts anywhere', () => {
+ok('ability: snapshot lists squares publicly (id, x, y, angle, scale, team, kind)', () => {
   const { sim } = abSim();
   sim.useAbility(1, 'u'); for (let i = 0; i < 20; i++) sim.step();
   const sn = sim.snapshot();
-  assert.strictEqual(sn.a.length, 1); assert.strictEqual(sn.a[0].length, 6);
-  assert(!/hp|heart/i.test(JSON.stringify(sn)));
+  assert.strictEqual(sn.a.length, 1); assert.strictEqual(sn.a[0].length, 7, '[id, x, y, angle, scale, team, kind]');
 });
 ok('ability: dying/leaving does not break the sim; a restart clears squares', () => {
   const keep = [CFG.MATCH_SECONDS, CFG.MATCH_OVER_SECONDS]; CFG.MATCH_SECONDS = 2; CFG.MATCH_OVER_SECONDS = 1;
@@ -400,6 +401,148 @@ ok('ability: dying/leaving does not break the sim; a restart clears squares', ()
     for (let i = 0; i < 60 * 4; i++) sim.step();
     assert.strictEqual(sim.abilities.length, 0);
   } finally { [CFG.MATCH_SECONDS, CFG.MATCH_OVER_SECONDS] = keep; }
+});
+
+
+// ───────────── the dash only hurts with its leading edge ─────────────
+const M2 = require('../lib/matter.min.js');
+// A dashes right at 12 px/step for a few steps with B placed relative to A's centre (dx, dy). Returns B's hearts afterwards.
+function sideSwipe(dx, dy) {
+  const sim = S.create();
+  const a = sim.addFighter({ id: 1, name: 'a', team: 1, at: { x: 1000, y: 700 } });
+  const b = sim.addFighter({ id: 2, name: 'b', team: 2, at: { x: 1000 + dx, y: 700 + dy } });
+  M2.Body.setStatic(b.body, true);                                  // B just stands there
+  a.dashT = 0.3; a.dashDir = { x: 1, y: 0 }; a.canDash = false;
+  for (let i = 0; i < 14; i++) { M2.Body.setVelocity(a.body, { x: 12, y: 0 }); sim.step(); }
+  return b.hp;
+}
+ok('dash zone: a head-on hit counts, but touching with the top / bottom of the dashing cube does not', () => {
+  assert(sideSwipe(110, 0) < CFG.HEARTS, 'leading edge hits');
+  assert(sideSwipe(0, -76) === CFG.HEARTS, 'B sits right above the dashing cube and its top edge slides under it: no damage');
+  assert(sideSwipe(0, 76) === CFG.HEARTS, 'same from below: no damage');
+  assert(sideSwipe(60, -70) < CFG.HEARTS, 'but catching B with the leading corner does count');
+});
+ok('dash zone: the hurting stretch is one edge long and slides around the outline as the cube turns (30% / 70% split)', () => {
+  const len = pts => { let L = 0; for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return L; };
+  const flat = S.zonePolyline(0, 0, 80, 0, { x: 1, y: 0 });
+  assert.strictEqual(flat.length, 2, 'dashing straight at a face: the zone is that face (no corner)');
+  assert(Math.abs(len(flat) - 80) < 0.5 && flat.every(p => Math.abs(p[0] - 40) < 0.5), 'a straight line along the right edge');
+  const tilted = S.zonePolyline(0, 0, 80, 20 * Math.PI / 180, { x: 1, y: 0 });
+  assert.strictEqual(tilted.length, 3, 'a turned cube: the line wraps round a corner');
+  const seg = [Math.hypot(tilted[1][0] - tilted[0][0], tilted[1][1] - tilted[0][1]), Math.hypot(tilted[2][0] - tilted[1][0], tilted[2][1] - tilted[1][1])];
+  const share = Math.min(...seg) / (seg[0] + seg[1]);
+  assert(share > 0.1 && share < 0.4 && Math.abs(seg[0] + seg[1] - 80) < 0.5, 'uneven split across the two edges: ' + seg.map(x => x.toFixed(1)));
+  const diag = S.zonePolyline(0, 0, 80, Math.PI / 4, { x: 1, y: 0 });
+  const dseg = [Math.hypot(diag[1][0] - diag[0][0], diag[1][1] - diag[0][1]), Math.hypot(diag[2][0] - diag[1][0], diag[2][1] - diag[1][1])];
+  assert(Math.abs(dseg[0] - dseg[1]) < 1, 'dashing with a corner first: 50 / 50');
+});
+
+// ───────────── characters ─────────────
+ok('characters: Cube 80 px / 3 hearts, Titan 112 px / 5 hearts, Mason 80 px / 3 hearts; bodies and hearts match', () => {
+  const sim = S.create();
+  const c = sim.addFighter({ id: 1, name: 'c', team: 1 }), t = sim.addFighter({ id: 2, name: 't', team: 1, cls: 'titan' }), m = sim.addFighter({ id: 3, name: 'm', team: 1, cls: 'mason' });
+  const w = f => f.body.bounds.max.x - f.body.bounds.min.x;
+  assert.deepStrictEqual([c, t, m].map(f => Math.round(w(f))), [80, 112, 80]);
+  assert.deepStrictEqual([c, t, m].map(f => [f.maxHp, f.hp]), [[3, 3], [5, 5], [3, 3]]);
+  settle(sim);
+  assert(t.body.position.y < CFG.H - 112 / 2 + 1 && t.body.position.y > CFG.H - 112 / 2 - 14, 'the big one rests on the floor, not inside it');
+});
+ok('characters: the Titan is a little slower on the ground and in the air, and its dash hits longer and reaches further', () => {
+  const run = cls => {
+    const sim = S.create(); const f = sim.addFighter({ id: 1, name: 'a', team: 1, cls, at: { x: 600, y: CFG.H - CFG.CLASSES[cls].size / 2 - 2 } });
+    settle(sim, 60); const x0 = f.body.position.x; sim.setInput(1, { rot: 1 }); settle(sim, 60);
+    const roll = f.body.position.x - x0;
+    sim.setInput(1, { rot: 0 }); settle(sim, 90);
+    sim.pressSpace(1); sim.step();                                  // jump
+    const y0 = f.body.position.y; let top = y0; for (let i = 0; i < 40; i++) { sim.step(); top = Math.min(top, f.body.position.y); }
+    sim.setInput(1, { ax: 1, ay: 0, aim: true }); sim.pressSpace(1); sim.step();
+    const win = f.dashT, xs = f.body.position.x; const vx = f.body.velocity.x; for (let i = 0; i < 400 && f.dashT > 0; i++) sim.step();
+    return { roll, jump: y0 - top, win, reach: f.body.position.x - xs, vx };
+  };
+  const c = run('cube'), t = run('titan');
+  assert(t.roll < c.roll && t.roll > c.roll * 0.6, `slower roll (${t.roll.toFixed(0)} vs ${c.roll.toFixed(0)})`);
+  assert(t.win > c.win * 1.3 && t.win < c.win * 1.6, `dash window ${t.win.toFixed(2)} vs ${c.win.toFixed(2)}`);
+  assert(t.reach > c.reach * 1.15, `dash covers more ground (${t.reach.toFixed(0)} vs ${c.reach.toFixed(0)})`);
+  assert(t.vx < c.vx, 'but is launched a little slower');
+});
+ok('characters: choosing one takes effect at the next respawn (or immediately in practice)', () => {
+  const sim = S.create(); const f = sim.addFighter({ id: 1, name: 'a', team: 1 }); settle(sim);
+  sim.setClass(1, 'titan');
+  assert.strictEqual(f.cls, 'cube', 'not mid-life');
+  sim.respawn(1);
+  assert.strictEqual(f.cls, 'titan'); assert.strictEqual(f.maxHp, 5); assert.strictEqual(Math.round(f.body.bounds.max.x - f.body.bounds.min.x), 112);
+  settle(sim, 60); assert(f.body.position.y > CFG.H - 70, 'standing on the floor');
+  sim.setClass(1, 'mason', true);
+  assert.strictEqual(f.cls, 'mason'); assert.strictEqual(Math.round(f.body.bounds.max.x - f.body.bounds.min.x), 80);
+  assert(!sim.setClass(1, 'nonsense'), 'unknown characters are refused');
+  assert.strictEqual(f.cls, 'mason');
+});
+ok('characters: a Titan regenerates up to 5 hearts, and hit events tell everyone its max', () => {
+  const sim = S.create(); const t = sim.addFighter({ id: 2, name: 't', team: 2, cls: 'titan', at: { x: 1090, y: CFG.H - 58 } }), a = sim.addFighter({ id: 1, name: 'a', team: 1 });
+  settle(sim); sim.drainEvents(); t.hp = 5;
+  Matter_set(a, 1000, CFG.H - 40); Matter_set(t, 1100, CFG.H - 58);
+  sim.setInput(1, { ax: 1, ay: 0, aim: true }); a.canDash = true; a.canJump = true;
+  sim.pressSpace(1); sim.step(); sim.pressSpace(1); sim.step(); for (let i = 0; i < 30; i++) sim.step();
+  const ev = sim.drainEvents().find(e => e.e === 'hit');
+  assert(ev && ev.max === 5 && ev.hp === 4, JSON.stringify(ev));
+  const t0 = sim.time; while (sim.time < t0 + 5.3) sim.step();
+  assert.strictEqual(t.hp, 4.5); while (sim.time < t0 + 7.5) sim.step(); assert.strictEqual(t.hp, 5);
+});
+
+// ───────────── Titan: heal a nearby ally ─────────────
+ok('Titan ability: any arrow key heals the most hurt ally in range by 1 heart; cooldown 1.5 s', () => {
+  const sim = S.create();
+  const t = sim.addFighter({ id: 1, name: 't', team: 1, cls: 'titan', at: { x: 1000, y: CFG.H - 58 } });
+  const a = sim.addFighter({ id: 2, name: 'a', team: 1, at: { x: 1200, y: CFG.H - 40 } });
+  const b = sim.addFighter({ id: 3, name: 'b', team: 1, at: { x: 1300, y: CFG.H - 40 } });
+  const e = sim.addFighter({ id: 4, name: 'e', team: 2, at: { x: 1100, y: CFG.H - 40 } });
+  settle(sim); a.hp = 2; b.hp = 1; e.hp = 1; for (const f of [a, b, e]) f.regenAt = 1e9; sim.drainEvents();      // (regen frozen so only the heal moves hearts)
+  assert(sim.useAbility(1, 'u'), 'any key works');
+  assert.strictEqual(b.hp, 2, 'the most hurt ally got the heart'); assert.strictEqual(a.hp, 2); assert.strictEqual(e.hp, 1, 'enemies are never healed');
+  const ev = sim.drainEvents().find(x => x.e === 'heal'); assert(ev && ev.to === 3 && ev.hp === 2);
+  assert.strictEqual(sim.privateState(1).ab > 1.4, true, 'cooldown started'); assert.strictEqual(sim.privateState(1).abMax, 1.5);
+  assert(!sim.useAbility(1, 'l'), 'still cooling down');
+  const t0 = sim.time; while (sim.time < t0 + 1.6) sim.step();
+  assert(sim.useAbility(1, 'r')); assert.strictEqual(a.hp, 3, 'a and b are both at 2 now: the closer one (a) is healed next');
+  assert.strictEqual(b.hp, 2, 'one heal per press');
+});
+ok('Titan ability: out of range / full health / enemies only → nothing happens and no cooldown is spent; never above max', () => {
+  const sim = S.create();
+  const t = sim.addFighter({ id: 1, name: 't', team: 1, cls: 'titan', at: { x: 600, y: CFG.H - 58 } });
+  const far = sim.addFighter({ id: 2, name: 'far', team: 1, at: { x: 600 + CFG.HEAL_RANGE + 80, y: CFG.H - 40 } });
+  settle(sim); far.hp = 1; far.regenAt = 1e9; sim.drainEvents();
+  assert(!sim.useAbility(1, 'u'), 'ally too far'); assert.strictEqual(far.hp, 1);
+  assert(sim.drainEvents().some(e => e.e === 'noheal'), 'a failed attempt is reported');
+  assert.strictEqual(t.abCd, 0, 'no cooldown for a miss');
+  const near = sim.addFighter({ id: 3, name: 'near', team: 1, at: { x: 800, y: CFG.H - 40 } }); settle(sim, 5);
+  assert(!sim.useAbility(1, 'u'), 'ally at full health');
+  near.hp = 2.5; near.regenAt = 1e9; assert(sim.useAbility(1, 'u')); assert.strictEqual(near.hp, 3, 'capped at the ally\'s max');
+});
+
+// ───────────── Mason: static black blocks ─────────────
+ok('Mason ability: arrow keys spawn a STATIC black block (kind 1) that stays put, with the same grow / hold / shrink timing', () => {
+  const sim = S.create(); const m = sim.addFighter({ id: 1, name: 'm', team: 1, cls: 'mason', at: { x: 1000, y: CFG.H - 60 } }); settle(sim);
+  assert(sim.useAbility(1, 'u'));
+  const ab = sim.abilities[0]; assert.strictEqual(ab.kind, 1); assert(ab.body.isStatic, 'static: not physics-based');
+  const y0 = ab.body.position.y;
+  const vis = []; for (let i = 0; i < 60 * 3.1 && sim.abilities.length; i++) { sim.step(); vis.push(ab.vis); }
+  assert.strictEqual(ab.body.position.y, y0, 'it never moved (no gravity)');
+  assert(Math.max(...vis) > 1.02 && Math.max(...vis) < 1.12 && vis[Math.round(1.5 * 60)] === 1, 'same animation');
+  assert.strictEqual(sim.abilities.length, 0, 'gone after ~3 s');
+  assert.strictEqual(sim.snapshot().a.length, 0);
+});
+ok('Mason ability: a static block is solid — a cube standing on it gets its jump + dash back, and nothing can push it', () => {
+  const sim = S.create(); const m = sim.addFighter({ id: 1, name: 'm', team: 1, cls: 'mason', at: { x: 1000, y: CFG.H - 60 } }); settle(sim);
+  sim.useAbility(1, 'l'); for (let i = 0; i < 40; i++) sim.step();
+  const ab = sim.abilities[0], top = ab.body.bounds.min.y, x = ab.body.position.x;
+  const g = sim.addFighter({ id: 2, name: 'g', team: 2, at: { x, y: top - 40 - 25 } }); g.canDash = false; g.sinceFloor = 1;
+  for (let i = 0; i < 40; i++) sim.step();
+  assert(g.canDash, 'landing on a Mason block refills the dash'); assert.strictEqual(Math.round(ab.body.position.x), Math.round(x));
+});
+ok('abilities: cooldown values per character are public in the private state (Cube 0.5 s, Mason 0.5 s, Titan 1.5 s)', () => {
+  const sim = S.create();
+  for (const [i, c] of ['cube', 'mason', 'titan'].entries()) sim.addFighter({ id: i + 1, name: c, team: 1, cls: c });
+  assert.deepStrictEqual([1, 2, 3].map(id => sim.privateState(id).abMax), [0.5, 0.5, 1.5]);
 });
 
 console.log(n + ' tests passed');

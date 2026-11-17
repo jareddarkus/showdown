@@ -158,9 +158,20 @@ const until = async (page, fn, msg, ms = 8000) => { const t = Date.now(); while 
   for (const k of tryDirs) { await cli.keyboard.press(k); await sleep(250); if (await host.evaluate(() => __game.sim.abilities.some(a => a.owner === 1))) break; }
   ok(await host.evaluate(() => __game.sim.abilities.some(a => a.owner === 1)), 'client arrow key spawns an ability square on the host');
   await until(cli, () => __game.net.snaps[__game.net.snaps.length - 1].a.length >= 1, 'client sees the square in the public snapshot');
-  ok(await cli.evaluate(() => { const sn = __game.net.snaps[__game.net.snaps.length - 1]; return !/"hp"|heart/i.test(JSON.stringify(sn)); }), 'abilities add no hearts to the public snapshot');
+  ok(await cli.evaluate(() => { const sn = __game.net.snaps[__game.net.snaps.length - 1]; return sn.a.every(r => r.length === 7) && !/dash|jump|cooldown/i.test(JSON.stringify(sn)); }), 'abilities add no private state to the public snapshot');
   await sleep(3200);                                              // it expires (0.5 + 2 + 0.5 s)
   ok(await host.evaluate(() => __game.sim.abilities.length === 0), 'the square disappears again after ~3 s');
+
+  // Character choice from a client: arrives with the input, applies at the next respawn, and shows up in the public snapshot row.
+  await cli.keyboard.press('Digit2'); await sleep(400);                         // 2 = Titan
+  ok(await host.evaluate(() => __game.sim.fighters.get(1).cls === 'cube' && __game.sim.fighters.get(1).nextCls === 'titan'), 'client picks Titan: queued on the host, not applied mid-life');
+  await host.evaluate(() => __game.sim.respawn(1)); await sleep(400);
+  ok(await host.evaluate(() => { const f = __game.sim.fighters.get(1); return f.cls === 'titan' && f.size === 112 && f.maxHp === 5; }), 'after respawn the client is a Titan: 112 px, 5 hearts');
+  await until(cli, () => { const sn = __game.net.snaps[__game.net.snaps.length - 1]; const r = sn.f.find(f => f[0] === __game.myId); return r && r[6] === 1 && r[7] === 5; }, 'the public row carries class 1 and 5 hearts, and the client\'s own HUD state says titan');
+  ok(await cli.evaluate(() => __game.net.me.cls === 'titan' && __game.net.me.max === 5), 'client private state: cls titan, max 5');
+  await cli.keyboard.press('Digit1'); await sleep(400);                         // back to Cube for the combat checks below
+  await host.evaluate(() => __game.sim.respawn(1)); await sleep(400);
+  ok(await host.evaluate(() => { const f = __game.sim.fighters.get(1); return f.cls === 'cube' && f.size === 80 && f.maxHp === 3; }), 'and back to Cube');
 
   // Combat: put them face-to-face, host dashes into the client.
   await sleep(800);
@@ -175,18 +186,19 @@ const until = async (page, fn, msg, ms = 8000) => { const t = Date.now(); while 
   await until(cli, () => __game.net.me.hp === 2, 'victim is told its own hearts (private)');
   await sleep(500);
 
-  // Hearts secrecy on the wire: snapshots carry no hearts; only `hit` events do.
+  // What goes over the wire: hearts are public (hurt cubes show them to everyone), but dash / jump / ability availability stay private.
   const wire = await cli.evaluate(() => __wire);
   const snaps = wire.map(JSON.parse).filter(m => m.k === 'snap');
   ok(snaps.length > 10, 'captured raw wire messages (' + snaps.length + ' snaps)');
-  ok(snaps.every(m => !/"hp"|heart/i.test(JSON.stringify(m.s))), 'public snapshots never contain hearts');
-  ok(snaps.every(m => Object.keys(m.me).sort().join() === 'alive,dash,dashT,hp,jump'), 'private block is only the receiver\'s own state');
+  ok(snaps.every(m => !/dash|jump|cooldown|ability/i.test(JSON.stringify(m.s.f))), 'public snapshots never contain dash / jump / ability state');
+  ok(snaps.every(m => Object.keys(m.me).sort().join() === 'ab,abMax,alive,cls,dash,dashT,dx,dy,hp,jump,max'), 'private block is only the receiver\'s own state');
+  ok(snaps.some(m => m.s.f.some(f => f[0] === 1 && f[7] === 2)), 'a hurt cube\'s hearts are public (row hp = 2) so everyone can draw them above it');
   ok(snaps.some(m => (m.ev || []).some(e => e.e === 'hit' && e.hp === 2)), 'hit event reveals victim hearts to everyone');
   // Attacker (host) must never receive the client's private block, and vice versa: client `me` hp is its own.
   ok(await host.evaluate(() => __game.sim.fighters.get(0).hp === 3), 'attacker unharmed');
 
   // Dash outline is local-only: client view of host has no dash info in snapshots.
-  ok(snaps.every(m => m.s.f.every(f => f.length === 6)), 'snapshot rows carry no dash/hearts fields');
+  ok(snaps.every(m => m.s.f.every(f => f.length === 8)), 'snapshot rows are [id, x, y, angle, alive, respawns, class, hearts] and nothing else');
 
   // A host in a background window gets no requestAnimationFrame at all. The match must keep running anyway.
   await host.evaluate(() => { window.requestAnimationFrame = () => 0; });

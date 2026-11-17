@@ -4,8 +4,8 @@
  * for the initial WebRTC handshake.
  *
  * Wire format (JSON):
- *   client → host  {k:'hello', name}
- *                  {k:'in', rot, ax, ay, aim, sp, ab}  sp = running count of Space presses, ab = last few ability presses [[n, 'l'|'r'|'u'|'d'], …]
+ *   client → host  {k:'hello', name, v, cls}           cls = chosen character ('cube' | 'titan' | 'mason')
+ *                  {k:'in', rot, ax, ay, aim, sp, ab, cls}  cls = character for the next respawn; sp = running count of Space presses, ab = last few ability presses [[n, 'l'|'r'|'u'|'d'], …]
  *   host → client  {k:'welcome', id, roster}   {k:'roster', roster}   {k:'full'}
  *                  {k:'snap', s, me, ev}               s = public snapshot, me = YOUR private state
  * Roster entries are [id, name, team]. Hearts are never in `s`; each client only ever receives its
@@ -38,7 +38,7 @@
 
   // ───────────────────────── Host ─────────────────────────
   // sim: CubeSim instance. The host is fighter id 0.
-  function createHost({ sim, name, onRoster, onError }) {
+  function createHost({ sim, name, cls, onRoster, onError }) {
     const players = new Map();   // peer id -> { id, name, conn, lastSpace, lastSeen }
     let nextId = 1;
     let peer = null, closed = false;
@@ -53,7 +53,7 @@
     };
 
     // Add the host's own fighter.
-    sim.addFighter({ id: 0, name: cleanName(name), team: 1 });
+    sim.addFighter({ id: 0, name: cleanName(name), team: 1, cls });
 
     function dropPlayer(p) {
       if (!players.has(p.conn.peer)) return;
@@ -86,9 +86,10 @@
             return;
           }
           const f = sim.fighters.get(p.id);
-          if (f) { f.name = cleanName(msg.name); p.name = f.name; broadcastRoster(); }
+          if (f) { f.name = cleanName(msg.name); p.name = f.name; if (typeof msg.cls === 'string') sim.setClass(p.id, msg.cls, true); broadcastRoster(); }
         } else if (msg.k === 'in') {
           sim.setInput(p.id, msg);
+          if (typeof msg.cls === 'string') sim.setClass(p.id, msg.cls);        // takes effect at the next respawn
           const sp = Number(msg.sp) | 0;
           if (sp > p.lastSpace) { p.lastSpace = sp; sim.pressSpace(p.id); }   // counter → no double-fire, loss-tolerant
           if (Array.isArray(msg.ab)) {                                         // ability presses: same idea, with a direction
@@ -132,14 +133,14 @@
   }
 
   // ───────────────────────── Client ─────────────────────────
-  function joinGame({ code, name, onWelcome, onRoster, onSnap, onClose }) {
+  function joinGame({ code, name, cls, onWelcome, onRoster, onSnap, onClose }) {
     code = cleanCode(code);
     let peer = null, conn = null, done = false, welcomed = false, spaces = 0, abN = 0;
     const abLog = [];
-    const api = { code };
+    const api = { code, cls };
     const fail = reason => { if (done) return; done = true; if (onClose) onClose(reason); api.close(); };
 
-    api.sendInput = inp => { if (conn && conn.open) conn.send({ k: 'in', ...inp, sp: spaces, ab: abLog }); };
+    api.sendInput = inp => { if (conn && conn.open) conn.send({ k: 'in', ...inp, sp: spaces, ab: abLog, cls: api.cls }); };
     api.pressSpace = () => { spaces++; };
     api.useAbility = dir => { abLog.push([++abN, dir]); if (abLog.length > 6) abLog.shift(); };
     api.close = () => { done = true; try { if (conn) conn.close(); } catch (e) { /* noop */ } try { if (peer) peer.destroy(); } catch (e) { /* noop */ } };
@@ -149,7 +150,7 @@
     peer.on('error', err => fail(err.type === 'peer-unavailable' ? 'No game found with that code.' : 'Connection error: ' + err.type));
     peer.on('open', () => {
       conn = peer.connect(PREFIX + code, { serialization: 'json', reliable: true });
-      conn.on('open', () => conn.send({ k: 'hello', name: cleanName(name), v: root.CUBE_VERSION }));
+      conn.on('open', () => conn.send({ k: 'hello', name: cleanName(name), v: root.CUBE_VERSION, cls: api.cls }));
       conn.on('data', msg => {
         if (!msg) return;
         if (msg.k === 'welcome') { welcomed = true; clearTimeout(timer); onWelcome(msg.id, msg.roster); }

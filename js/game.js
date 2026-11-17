@@ -30,6 +30,10 @@
     stepsSinceSnap = 0; roster = new Map();
     renderer.resetEffects();
   }
+  // Chosen character (remembered between visits). Practice switches at once; in a match it applies at your next respawn.
+  const CLASS_KEYS = Object.keys(CFG.CLASSES), CLASS_BY_ID = CLASS_KEYS.reduce((m, k) => { m[CFG.CLASSES[k].id] = k; return m; }, {});
+  let myClass = 'cube';
+  try { const c = localStorage.getItem('cl_cls'); if (CFG.CLASSES[c]) myClass = c; } catch (e) { /* private mode */ }
   let botLevel = new URLSearchParams(location.search).get('bots') || 'normal';
   const cycleBots = () => { if (bots) { botLevel = bots.cycle(); setMenu(); } };
   const nameVal = () => { const n = CubeNet.cleanName($('name').value); try { localStorage.setItem('cl_name', n); } catch (e) { /* private mode */ } return n; };
@@ -37,7 +41,7 @@
   function startSolo() {
     teardown(); mode = 'solo'; myId = 0;
     sim = CubeSim.create({ bots: false });
-    sim.addFighter({ id: 0, name: 'You', team: 1 });
+    sim.addFighter({ id: 0, name: 'You', team: 1, cls: myClass });
     // Practice is a full 3v3: you + 2 allies vs 3 enemies, all AI-driven. ?bots=off|easy|normal|hard sets the starting level.
     bots = CubeBots.create(sim, { level: botLevel });
     bots.fill(CubeSim.CFG.TEAM_SIZE);
@@ -49,7 +53,7 @@
     sim = CubeSim.create({ bots: false });
     setStatus('Creating room…');
     try {
-      host = CubeNet.createHost({ sim, name: nameVal(), onRoster: setMenu, onError: e => setStatus('Network error: ' + e.type) });
+      host = CubeNet.createHost({ sim, name: nameVal(), cls: myClass, onRoster: setMenu, onError: e => setStatus('Network error: ' + e.type) });
       sim.fighters.get(0).name = nameVal();
       await host.ready;
       setMenu();
@@ -63,7 +67,7 @@
     teardown(); mode = 'client'; myId = -1;
     setStatus('Joining ' + CubeNet.cleanCode(code) + '…');
     client = CubeNet.joinGame({
-      code, name: nameVal(),
+      code, name: nameVal(), cls: myClass,
       onWelcome: (id, r) => { myId = id; setRoster(r); setMenu(); },
       onRoster: r => { setRoster(r); setMenu(); },
       onSnap: onSnap,
@@ -99,6 +103,7 @@
     if (ARROWS[e.code]) { useAbility(ARROWS[e.code]); e.preventDefault(); }
     if (e.code === 'KeyR') tryRespawn();
     if (e.code === 'KeyB') cycleBots();
+    if (/^Digit[1-3]$/.test(e.code)) chooseClass(CLASS_KEYS[+e.code.slice(5) - 1]);
     if (e.code === 'KeyH') $('help').classList.toggle('hidden');
     if (e.code === 'KeyF') perf.show = !perf.show;
   });
@@ -199,13 +204,14 @@
       const ri = roster.get(fb[0]) || { name: 'Cube', team: 1 };
       const snap = !fa || fa[5] !== fb[5] || !fa[4] || !fb[4];   // respawned / dead: don't slide across the map
       const L = (p, q) => (snap ? q : p + (q - p) * u);
-      return { id: fb[0], x: L(fa && fa[1], fb[1]), y: L(fa && fa[2], fb[2]), a: L(fa && fa[3], fb[3]), alive: !!fb[4], team: ri.team, name: ri.name };
+      const cl = CFG.CLASSES[CLASS_BY_ID[fb[6]] || 'cube'];
+      return { id: fb[0], x: L(fa && fa[1], fb[1]), y: L(fa && fa[2], fb[2]), a: L(fa && fa[3], fb[3]), alive: !!fb[4], team: ri.team, name: ri.name, size: cl.size, hp: fb[7], max: cl.hearts, cls: CLASS_BY_ID[fb[6]] || 'cube' };
     });
     const ca = a.c;
     const crates = b.c.map((cb, i) => [ca[i][0] + (cb[0] - ca[i][0]) * u, ca[i][1] + (cb[1] - ca[i][1]) * u, ca[i][2] + (cb[2] - ca[i][2]) * u]);
     // Ability squares: match by id between the two snapshots and interpolate; scale/team come from the newer one.
     const pa = new Map((a.a || []).map(r => [r[0], r]));
-    const abilities = (b.a || []).map(r => { const q = pa.get(r[0]); return q ? [r[0], q[1] + (r[1] - q[1]) * u, q[2] + (r[2] - q[2]) * u, q[3] + (r[3] - q[3]) * u, r[4], r[5]] : r; });
+    const abilities = (b.a || []).map(r => { const q = pa.get(r[0]); return q ? [r[0], q[1] + (r[1] - q[1]) * u, q[2] + (r[2] - q[2]) * u, q[3] + (r[3] - q[3]) * u, r[4], r[5], r[6]] : r; });
     const m = b.m || [CFG.MATCH_SECONDS, 0, 0, 0];
     return { fighters, crates, abilities, match: { left: m[0], over: !!m[1], winner: m[2], overLeft: m[3] } };
   }
@@ -234,16 +240,35 @@
     const fighters = [...sim.fighters.values()].map(f => {
       const p = f.body.position;
       const ok = f.px !== undefined && f.alive && f.pAlive && f.prs === f.rs && Math.abs(p.x - f.px) < 150 && Math.abs(p.y - f.py) < 150;
-      return { id: f.id, x: ok ? f.px + (p.x - f.px) * al : p.x, y: ok ? f.py + (p.y - f.py) * al : p.y, a: ok ? f.pa + (f.body.angle - f.pa) * al : f.body.angle, alive: f.alive, team: f.team, name: f.name };
+      return { id: f.id, x: ok ? f.px + (p.x - f.px) * al : p.x, y: ok ? f.py + (p.y - f.py) * al : p.y, a: ok ? f.pa + (f.body.angle - f.pa) * al : f.body.angle, alive: f.alive, team: f.team, name: f.name, size: f.size, hp: f.hp, max: f.maxHp, cls: f.cls };
     });
     const me = sim.fighters.get(myId);
     return {
-      abilities: sim.abilities.map(a => [a.id, a.body.position.x, a.body.position.y, a.body.angle, a.vis, a.team]),
+      abilities: sim.abilities.map(a => [a.id, a.body.position.x, a.body.position.y, a.body.angle, a.vis, a.team, a.kind]),
       match: { left: sim.match.left, over: sim.match.over, winner: sim.match.winner, overLeft: sim.match.overLeft },
       fighters, crates: sim.crateBodies.map(b => (b.px === undefined ? [b.position.x, b.position.y, b.angle] : [b.px + (b.position.x - b.px) * al, b.py + (b.position.y - b.py) * al, b.pa + (b.angle - b.pa) * al])),
       me: me ? { id: myId, ...sim.privateState(myId) } : null,
       score: mode !== 'client' ? [sim.score[1], sim.score[2]] : null,
     };
+  }
+
+  function chooseClass(key) {
+    if (!CFG.CLASSES[key]) return;
+    myClass = key;
+    try { localStorage.setItem('cl_cls', key); } catch (e) { /* private mode */ }
+    if (mode === 'solo' && sim) sim.setClass(myId, key, true);          // practice: switch immediately
+    else if (mode === 'host' && sim) sim.setClass(myId, key);           // match: at your next respawn
+    else if (mode === 'client' && client) { client.cls = key; sendClientInput(performance.now() / 1000, true); }
+    syncClassUI();
+  }
+  const CLASS_BLURB = {
+    cube: 'Cube — ← ↑ ↓ → spawn a physics block beside you',
+    titan: 'Titan — big, 5 hearts, a bit slower, longer dash · any arrow key heals a nearby ally (1.5 s)',
+    mason: 'Mason — ← ↑ ↓ → spawn a solid black block that doesn’t move',
+  };
+  function syncClassUI() {
+    for (const b of document.querySelectorAll('#classes button')) b.classList.toggle('on', b.dataset.cls === myClass);
+    $('clsinfo').textContent = CLASS_BLURB[myClass] + (mode === 'solo' ? '' : ' · applies at your next respawn');
   }
 
   // ───────────────────────── Menu / UI ─────────────────────────
@@ -254,6 +279,7 @@
     $('btnHost').hidden = $('btnJoin').hidden = $('code').hidden = inRoom;
     $('btnCopy').hidden = mode !== 'host' || !host || !host.code;
     $('btnBots').hidden = mode !== 'solo';
+    syncClassUI();
     if (bots) $('btnBots').textContent = 'Bots: ' + bots.level;
     if (mode === 'solo') { setStatus('Practice 3v3 vs bots — host a game or enter a code to join friends.'); $('roster').textContent = ''; return; }
     const code = mode === 'host' ? (host && host.code) : (client && client.code);
@@ -268,6 +294,7 @@
     }
   }
 
+  for (const b of document.querySelectorAll('#classes button')) b.onclick = () => { b.blur(); chooseClass(b.dataset.cls); };
   try { $('name').value = localStorage.getItem('cl_name') || ''; } catch (e) { /* ignore */ }
   $('btnHost').onclick = () => { $('btnHost').blur(); startHost(); };
   $('btnJoin').onclick = () => { $('btnJoin').blur(); const c = CubeNet.cleanCode($('code').value); if (c.length === 5) startClient(c); else setStatus('Enter the 5-character room code.'); };

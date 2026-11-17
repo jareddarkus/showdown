@@ -47,6 +47,10 @@
   #menu button:hover { filter:brightness(1.1); }
   #menu button:focus-visible, #menu input:focus-visible { outline:2px solid var(--blue); outline-offset:-2px; }
   #menu [hidden] { display:none !important; }
+  #classes { flex-basis:100%; display:flex; gap:6px; }
+  #menu #classes button { background:#fff; color:var(--ink); flex:1; }
+  #menu #classes button.on { background:var(--accent); color:#fff; }
+  #clsinfo { flex-basis:100%; color:#c7d1ce; font-size:11px; line-height:1.4; }
   #status { flex-basis:100%; color:#c7d1ce; line-height:1.4; }
   #roster { flex-basis:100%; line-height:1.5; }
   #roster:empty { display:none; }
@@ -74,6 +78,10 @@
     <button id="btnCopy" class="alt" hidden>Copy invite link</button>
     <button id="btnLeave" class="alt" hidden>Leave</button>
     <button id="btnBots" class="alt" title="Bot skill (B)">Bots: normal</button>
+    <div id="classes" role="group" aria-label="Character">
+      <button data-cls="cube" title="Key 1">Cube</button><button data-cls="titan" title="Key 2">Titan</button><button data-cls="mason" title="Key 3">Mason</button>
+    </div>
+    <div id="clsinfo"></div>
     <div id="status"></div>
     <div id="roster"></div>
   </div>
@@ -84,9 +92,10 @@
     <div><kbd>Space</kbd> touching anything → <b>jump</b> off it · in the air (the void) → <b>dash</b></div>
     <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> aim the dash <span class="dim">(none = straight ahead of the cube)</span></div>
     <div><b>In the air:</b> <kbd>A</kbd><kbd>D</kbd> steer · <kbd>W</kbd> fall slower · <kbd>S</kbd> while falling = <b>fast fall</b></div>
-    <div><b>Ability:</b> <kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd> a small physics square pops out beside you for 2 s (only if there is room) — a wall, a step, or a dash-reset surface</div>
+    <div><b>Character</b> (menu, or <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd>): <b>Cube</b> 3 hearts · <b>Titan</b> big, 5 hearts, a bit slower, longer dash · <b>Mason</b> like Cube. It changes at your next respawn (instantly in practice)</div>
+    <div><b>Ability</b> <kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd>: <b>Cube</b> a physics block pops out beside you for 2 s (if there is room) · <b>Mason</b> the same, but a solid black block that never moves · <b>Titan</b> any of the keys heals the most hurt ally nearby by 1 heart (1.5 s). The bar in the corner shows the cooldown</div>
     <div><b>Dash reset:</b> touch any surface with the <b>middle of one of your edges</b> (not a corner) — other cubes count too, and touching one gives <i>them</i> a free reset</div>
-    <div><b>Hearts:</b> a dash hit during the white outline costs one. After 5 s without being hit you heal ½ heart every 2 s</div>
+    <div><b>Hearts:</b> a dash hit costs one — but only where the <b>white line</b> is: the stretch of your cube facing the dash. After 5 s without being hit you heal ½ heart every 2 s. Hurt cubes keep their hearts above them</div>
     <div>Practice is 3v3 vs bots — <kbd>B</kbd> cycles their skill (off · easy · normal · hard)</div>
     <div><kbd>R</kbd> respawn (practice only) · <kbd>H</kbd> hide this</div>
     <div class="dim" style="margin-top:4px">🎮 Left stick move + aim · right stick aim · R1 jump/dash · D-pad abilities · Options reset (practice) · <kbd>F</kbd> fps</div>
