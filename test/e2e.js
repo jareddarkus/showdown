@@ -138,7 +138,7 @@ const until = async (page, fn, msg, ms = 8000) => { const t = Date.now(); while 
   await until(cli, () => __game.net.me && __game.net.me.jump === false, 'client receives its own private state');
 
   // Match clock reaches the client, and the client's arrow keys spawn a physics square on the host (only a direction + counter go over the wire).
-  await until(cli, () => { const sn = __game.net.snaps[__game.net.snaps.length - 1]; return Array.isArray(sn.m) && sn.m[0] > 0 && sn.m[0] <= 300 && sn.m[1] === 0; }, 'snapshots carry the 5-minute match clock');
+  await until(cli, () => { const sn = __game.net.snaps[__game.net.snaps.length - 1]; return Array.isArray(sn.m) && sn.m[0] > 0 && sn.m[0] <= 180 && sn.m[1] === 0; }, 'snapshots carry the 3-minute match clock');
   await sleep(1200);                                              // land again so there is room around the client's cube
   const tryDirs = ['ArrowUp', 'ArrowLeft', 'ArrowRight'];
   for (const k of tryDirs) { await cli.keyboard.press(k); await sleep(250); if (await host.evaluate(() => __game.sim.abilities.some(a => a.owner === 1))) break; }

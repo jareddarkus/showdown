@@ -279,13 +279,13 @@ ok('hearts: hearts shown are fractional-safe (private state), public snapshot st
   assert(!/hp|heart/i.test(JSON.stringify(sim.snapshot())));
 });
 
-// ───────────── the 5-minute match ─────────────
-ok('match: 5 minutes by default, snapshot carries [seconds left, over, winner]', () => {
-  assert.strictEqual(CFG.MATCH_SECONDS, 300);
+// ───────────── the 3-minute match ─────────────
+ok('match: 3 minutes by default, snapshot carries [seconds left, over, winner]', () => {
+  assert.strictEqual(CFG.MATCH_SECONDS, 180);
   const sim = S.create(); sim.addFighter({ id: 1, name: 'a', team: 1 });
   sim.step();
   const m = sim.snapshot().m;
-  assert(m[0] > 299.9 && m[0] <= 300 && m[1] === 0 && m[2] === 0, JSON.stringify(m));
+  assert(m[0] > 179.9 && m[0] <= 180 && m[1] === 0 && m[2] === 0, JSON.stringify(m));
 });
 ok('match: ends with a winner, freezes damage, shows the result, then restarts fresh', () => {
   const keep = [CFG.MATCH_SECONDS, CFG.MATCH_OVER_SECONDS];

@@ -40,7 +40,7 @@
     HEART_REVEAL: 2.0,             // s a hit cube shows its hearts to everyone (renderer side)
     RESPAWN_DELAY: 2.5,
     TEAM_SIZE: 3,
-    MATCH_SECONDS: 300,            // a match lasts 5 minutes
+    MATCH_SECONDS: 180,            // a match lasts 3 minutes
     MATCH_OVER_SECONDS: 8,         // the result banner stays this long, then a fresh match starts
     REGEN_DELAY: 5,                // s without being hit before hearts start coming back
     REGEN_EVERY: 2,                // s between regeneration ticks …
@@ -448,7 +448,7 @@
 
     function clearAbilities() { for (const ab of abilities) Composite.remove(world, ab.body); abilities.length = 0; scanCache = null; }
 
-    // ─────────────── the 5-minute match ───────────────
+    // ─────────────── the 3-minute match ───────────────
     function updateMatch() {
       if (!match.over) {
         match.left -= STEP;

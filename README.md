@@ -34,7 +34,7 @@ No aim → a jump goes straight off the surface and a dash goes the cube's own f
 - The **host's browser runs the match** (authoritative physics); everyone else sends inputs and gets snapshots over WebRTC (PeerJS). A match makes **zero backend calls** — only the free PeerJS broker is used for the handshake.
 - Hearts are secret on the wire: snapshots contain positions only, each player is sent just their own hearts, and a hit briefly reveals the victim's hearts to everyone.
 - Keep the host's tab in the foreground (browsers throttle background tabs). Strict NATs may need a TURN server (not configured yet).
-- **5-minute match.** The clock and the RED / YELLOW scoreboards (eliminations) sit top-centre. At 0:00 the team with more eliminations wins (equal = draw), a banner shows for 8 s, then a fresh match starts.
+- **3-minute match.** The clock and the RED / YELLOW scoreboards (eliminations) sit top-centre. At 0:00 the team with more eliminations wins (equal = draw), a banner shows for 8 s, then a fresh match starts.
 - **Hearts:** 3 per cube. After 5 s without being hit you regain ½ heart every 2 s; a new hit restarts the wait.
 - **Ability squares:** a 64 px physics square that grows in (0.5 s, small bounce), lasts 2 s, then shrinks away. Use it as a wall, a stepping stone, or a surface for dash resets.
 

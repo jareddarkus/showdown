@@ -206,7 +206,7 @@
     // Ability squares: match by id between the two snapshots and interpolate; scale/team come from the newer one.
     const pa = new Map((a.a || []).map(r => [r[0], r]));
     const abilities = (b.a || []).map(r => { const q = pa.get(r[0]); return q ? [r[0], q[1] + (r[1] - q[1]) * u, q[2] + (r[2] - q[2]) * u, q[3] + (r[3] - q[3]) * u, r[4], r[5]] : r; });
-    const m = b.m || [300, 0, 0, 0];
+    const m = b.m || [CFG.MATCH_SECONDS, 0, 0, 0];
     return { fighters, crates, abilities, match: { left: m[0], over: !!m[1], winner: m[2], overLeft: m[3] } };
   }
 
