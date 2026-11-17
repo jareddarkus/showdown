@@ -69,12 +69,15 @@
         F.spray = Array.from({ length: 16 }, () => ({ x: rnd() - 0.5, p: rnd(), s: 0.7 + rnd() * 0.9 }));
         return F;
       }),
-      // the cave rock framing everything: two layers of stalactites + ragged side walls
+      // the cave roof: two layers of stalactites. Each one is a fixed triangle at a fixed spot in its layer, so the camera only slides
+      // them sideways (they never change shape). Near layer = darker, bigger, moves faster. w / len are fractions of the screen height.
       roof: [
-        { f: 0.32, col: '#3f5753', tile: 3000, amp: 0.20, pts: ridge(64, 0.9) },
-        { f: 0.55, col: '#1f2c2a', tile: 2600, amp: 0.17, pts: ridge(56, 0.9) },
-      ],
-      side: Array.from({ length: 40 }, () => rnd()),
+        { f: 0.32, col: '#3f5753', tile: 3000, n: 17, wMin: 0.05, wMax: 0.10, lMin: 0.05, lMax: 0.17 },
+        { f: 0.55, col: '#1f2c2a', tile: 2600, n: 11, wMin: 0.07, wMax: 0.14, lMin: 0.07, lMax: 0.22 },
+      ].map(R => {
+        R.spikes = Array.from({ length: R.n }, (_, i) => ({ x: (i + rnd() * 0.7) / R.n * R.tile, w: R.wMin + rnd() * (R.wMax - R.wMin), len: R.lMin + rnd() * (R.lMax - R.lMin), tip: (rnd() - 0.5) * 0.4 }));
+        return R;
+      }),
       motes: Array.from({ length: 34 }, () => ({ x: rnd(), y: 0.08 + rnd() * 0.78, s: 2 + rnd() * 2.4, p: rnd() * 6.28, f: 0.1 + rnd() * 0.25 })),
     };
   })();
@@ -277,29 +280,22 @@
       }
       ctx.globalAlpha = 1;
     }
-    // The cave (the FOREGROUND): stalactites hang from the top, ragged rock closes in at the sides. The forest and the waterfalls are
-    // what you see through this opening. Roof tips alternate with valleys; the water's source is hidden behind it.
+    // The cave (the FOREGROUND): a rock roof with stalactites hanging from it. The forest and the waterfalls are what you see below it;
+    // the waterfalls' source is hidden inside the roof.
     function drawCave(ceilY) {
+      const base = ceilY + ch * 0.03;
       for (const R of FOREST.roof) {
-        const tile = R.tile * cam.scale, off = cam.x * R.f * cam.scale, n = R.pts.length, step = 38;
-        ctx.fillStyle = R.col; ctx.beginPath(); ctx.moveTo(0, -4);
-        for (let x = 0, i = 0; x <= cw + step; x += step, i++) {
-          const u = ((((x + off) % tile) + tile) % tile) / tile * n, k = Math.floor(u), t = u - k;
-          const v = R.pts[k % n] * (1 - t) + R.pts[(k + 1) % n] * t;
-          ctx.lineTo(x, ceilY + ch * (0.03 + R.amp * v * (i % 2 ? 0.35 : 1)));
+        const tile = R.tile * cam.scale, off = cam.x * R.f * cam.scale;
+        ctx.fillStyle = R.col; ctx.fillRect(0, -4, cw, base + 4);
+        ctx.beginPath();
+        for (const sp of R.spikes) {
+          const w = sp.w * ch, len = sp.len * ch, X = ((((sp.x * cam.scale - off) % tile) + tile) % tile);
+          for (let x = X - tile; x < cw + w; x += tile) {
+            if (x < -w) continue;
+            ctx.moveTo(x - w / 2, base - 1); ctx.lineTo(x + w / 2, base - 1); ctx.lineTo(x + sp.tip * w, base + len); ctx.closePath();
+          }
         }
-        ctx.lineTo(cw + step, -4); ctx.closePath(); ctx.fill();
-      }
-      // side walls: a jagged vertical edge, wider toward the bottom
-      ctx.fillStyle = '#1b2826';
-      for (const dir of [-1, 1]) {
-        const x0 = dir < 0 ? 0 : cw;
-        ctx.beginPath(); ctx.moveTo(x0, -4);
-        for (let y = 0, i = 0; y <= ch + 44; y += 44, i++) {
-          const wd = cw * (0.010 + 0.040 * FOREST.side[(i + (dir > 0 ? 17 : 0)) % FOREST.side.length]) * (0.5 + 0.8 * Math.min(1, y / ch));
-          ctx.lineTo(dir < 0 ? wd : cw - wd, y);
-        }
-        ctx.lineTo(x0, ch + 4); ctx.closePath(); ctx.fill();
+        ctx.fill();
       }
     }
     function haze(y0, y1, a) {
