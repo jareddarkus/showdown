@@ -5,7 +5,7 @@
  *
  * Wire format (JSON):
  *   client → host  {k:'hello', name}
- *                  {k:'in', rot, ax, ay, aim, sp}      sp = running count of Space presses
+ *                  {k:'in', rot, ax, ay, aim, sp, ab}  sp = running count of Space presses, ab = last few ability presses [[n, 'l'|'r'|'u'|'d'], …]
  *   host → client  {k:'welcome', id, roster}   {k:'roster', roster}   {k:'full'}
  *                  {k:'snap', s, me, ev}               s = public snapshot, me = YOUR private state
  * Roster entries are [id, name, team]. Hearts are never in `s`; each client only ever receives its
@@ -69,7 +69,7 @@
         const t1 = sim.teamCount(1), t2 = sim.teamCount(2);
         const team = t1 <= t2 ? 1 : 2;
         const id = nextId++;
-        const p = { id, name: 'Cube', conn, lastSpace: 0, lastSeen: performance.now() };
+        const p = { id, name: 'Cube', conn, lastSpace: 0, lastAb: 0, lastSeen: performance.now() };
         players.set(conn.peer, p);
         sim.addFighter({ id, name: p.name, team });
         send(p, { k: 'welcome', id, roster: roster() });
@@ -91,6 +91,12 @@
           sim.setInput(p.id, msg);
           const sp = Number(msg.sp) | 0;
           if (sp > p.lastSpace) { p.lastSpace = sp; sim.pressSpace(p.id); }   // counter → no double-fire, loss-tolerant
+          if (Array.isArray(msg.ab)) {                                         // ability presses: same idea, with a direction
+            for (const e of msg.ab.slice(-8)) {
+              const n = Array.isArray(e) ? e[0] | 0 : 0;
+              if (n > p.lastAb && typeof e[1] === 'string') { p.lastAb = n; sim.useAbility(p.id, e[1]); }
+            }
+          }
         }
       });
       conn.on('close', () => { const p = players.get(conn.peer); if (p) dropPlayer(p); });
@@ -128,12 +134,14 @@
   // ───────────────────────── Client ─────────────────────────
   function joinGame({ code, name, onWelcome, onRoster, onSnap, onClose }) {
     code = cleanCode(code);
-    let peer = null, conn = null, done = false, welcomed = false, spaces = 0;
+    let peer = null, conn = null, done = false, welcomed = false, spaces = 0, abN = 0;
+    const abLog = [];
     const api = { code };
     const fail = reason => { if (done) return; done = true; if (onClose) onClose(reason); api.close(); };
 
-    api.sendInput = inp => { if (conn && conn.open) conn.send({ k: 'in', ...inp, sp: spaces }); };
+    api.sendInput = inp => { if (conn && conn.open) conn.send({ k: 'in', ...inp, sp: spaces, ab: abLog }); };
     api.pressSpace = () => { spaces++; };
+    api.useAbility = dir => { abLog.push([++abN, dir]); if (abLog.length > 6) abLog.shift(); };
     api.close = () => { done = true; try { if (conn) conn.close(); } catch (e) { /* noop */ } try { if (peer) peer.destroy(); } catch (e) { /* noop */ } };
 
     peer = new root.Peer(peerOptions());

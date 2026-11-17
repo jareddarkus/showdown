@@ -75,7 +75,7 @@
 
   // ───────────────────────── Input ─────────────────────────
   const keys = new Set();
-  let gpPrev = { jump: false, respawn: false };
+  let gpPrev = { jump: false, respawn: false, dp: [false, false, false, false] };
   // rot/mx/my = moving (A/D roll + air steer, W/S float/dive); ax/ay/aim = the direction a jump or dash goes.
   const input = { rot: 0, mx: 0, my: 0, aim: { x: 0, y: 0 }, aimActive: false };
   const typing = e => e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName);
@@ -84,6 +84,11 @@
     if (mode === 'client') { if (client) { client.pressSpace(); sendClientInput(performance.now() / 1000, true); } }   // send NOW, not at the next heartbeat
     else if (sim) sim.pressSpace(myId);
   }
+  const ARROWS = { ArrowLeft: 'l', ArrowRight: 'r', ArrowUp: 'u', ArrowDown: 'd' };
+  function useAbility(dir) {
+    if (mode === 'client') { if (client) { client.useAbility(dir); sendClientInput(performance.now() / 1000, true); } }
+    else if (sim) sim.useAbility(myId, dir);
+  }
   function tryRespawn() { if (mode === 'solo' && sim) sim.respawn(myId); }   // no free respawns in a real match
 
   addEventListener('keydown', e => {
@@ -91,6 +96,7 @@
     if (e.repeat) { if (e.code === 'Space') e.preventDefault(); return; }
     keys.add(e.code);
     if (e.code === 'Space') { pressSpace(); e.preventDefault(); }
+    if (ARROWS[e.code]) { useAbility(ARROWS[e.code]); e.preventDefault(); }
     if (e.code === 'KeyR') tryRespawn();
     if (e.code === 'KeyB') cycleBots();
     if (e.code === 'KeyH') $('help').classList.toggle('hidden');
@@ -150,7 +156,10 @@
       const r1 = !!(gp.buttons[5] && gp.buttons[5].pressed), opt = !!(gp.buttons[9] && gp.buttons[9].pressed);
       if (r1 && !gpPrev.jump) pressSpace();
       if (opt && !gpPrev.respawn) tryRespawn();
-      gpPrev = { jump: r1, respawn: opt };
+      // D-pad = abilities (up / down / left / right)
+      const dp = [12, 13, 14, 15].map(i => !!(gp.buttons[i] && gp.buttons[i].pressed));
+      ['u', 'd', 'l', 'r'].forEach((d, i) => { if (dp[i] && !gpPrev.dp[i]) useAbility(d); });
+      gpPrev = { jump: r1, respawn: opt, dp };
     } else {
       showPad(false);
     }
@@ -194,7 +203,11 @@
     });
     const ca = a.c;
     const crates = b.c.map((cb, i) => [ca[i][0] + (cb[0] - ca[i][0]) * u, ca[i][1] + (cb[1] - ca[i][1]) * u, ca[i][2] + (cb[2] - ca[i][2]) * u]);
-    return { fighters, crates };
+    // Ability squares: match by id between the two snapshots and interpolate; scale/team come from the newer one.
+    const pa = new Map((a.a || []).map(r => [r[0], r]));
+    const abilities = (b.a || []).map(r => { const q = pa.get(r[0]); return q ? [r[0], q[1] + (r[1] - q[1]) * u, q[2] + (r[2] - q[2]) * u, q[3] + (r[3] - q[3]) * u, r[4], r[5]] : r; });
+    const m = b.m || [300, 0, 0, 0];
+    return { fighters, crates, abilities, match: { left: m[0], over: !!m[1], winner: m[2], overLeft: m[3] } };
   }
 
   function sendClientInput(now, force = false) {
@@ -225,6 +238,8 @@
     });
     const me = sim.fighters.get(myId);
     return {
+      abilities: sim.abilities.map(a => [a.id, a.body.position.x, a.body.position.y, a.body.angle, a.vis, a.team]),
+      match: { left: sim.match.left, over: sim.match.over, winner: sim.match.winner, overLeft: sim.match.overLeft },
       fighters, crates: sim.crateBodies.map(b => (b.px === undefined ? [b.position.x, b.position.y, b.angle] : [b.px + (b.position.x - b.px) * al, b.py + (b.position.y - b.py) * al, b.pa + (b.angle - b.pa) * al])),
       me: me ? { id: myId, ...sim.privateState(myId) } : null,
       score: mode !== 'client' ? [sim.score[1], sim.score[2]] : null,
@@ -324,14 +339,14 @@
     if (mode === 'client') {
       sendClientInput(now);
       const cv = clientView(now);
-      view = cv ? { ...cv, me: net.me ? { id: myId, ...net.me } : null, score: net.score } : { fighters: [], crates: [], me: null, score: null };
+      view = cv ? { ...cv, me: net.me ? { id: myId, ...net.me } : null, score: net.score } : { fighters: [], crates: [], abilities: [], match: null, me: null, score: null };
     } else if (sim) {
       sim.setInput(myId, { rot: input.rot, mx: input.mx, my: input.my, ax: input.aim.x, ay: input.aim.y, aim: input.aimActive });
       advanceSim(performance.now());
       view = simView(now);
     }
     perf.simMs += (performance.now() - tSim - perf.simMs) * 0.1;
-    view = view || { fighters: [], crates: [], me: null, score: null };
+    view = view || { fighters: [], crates: [], abilities: [], match: null, me: null, score: null };
     view.now = now;
     view.aim = { active: input.aimActive, x: input.aim.x, y: input.aim.y };
     const tDraw = performance.now();

@@ -36,7 +36,7 @@ const until = async (page, fn, msg, ms = 8000) => { const t = Date.now(); while 
     window.__pad = { connected: true, axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
     navigator.getGamepads = () => [window.__pad];
   });
-  await host.goto(URL_);
+  await host.goto(URL_ + '&bots=off');          // the 3v3 is there, but standing still: this section tests input mapping, not the AI
   ok(await host.evaluate(() => __game.mode === 'solo' && __game.sim.fighters.size === 6), 'solo practice boots as 3v3: player + 2 allies + 3 enemy bots');
   // ── controller mapping (solo practice) ──
   const pad = (axes, btn) => host.evaluate(([a, b]) => { __pad.axes = a; __pad.buttons.forEach((x, i) => { x.pressed = x.value = (i === b ? 1 : 0); }); }, [axes, btn]);
@@ -136,6 +136,17 @@ const until = async (page, fn, msg, ms = 8000) => { const t = Date.now(); while 
   await sleep(200);
   ok(await host.evaluate(() => __game.sim.fighters.get(1).canJump === false), 'client Space reaches the host within 200 ms (no heartbeat delay)');
   await until(cli, () => __game.net.me && __game.net.me.jump === false, 'client receives its own private state');
+
+  // Match clock reaches the client, and the client's arrow keys spawn a physics square on the host (only a direction + counter go over the wire).
+  await until(cli, () => { const sn = __game.net.snaps[__game.net.snaps.length - 1]; return Array.isArray(sn.m) && sn.m[0] > 0 && sn.m[0] <= 300 && sn.m[1] === 0; }, 'snapshots carry the 5-minute match clock');
+  await sleep(1200);                                              // land again so there is room around the client's cube
+  const tryDirs = ['ArrowUp', 'ArrowLeft', 'ArrowRight'];
+  for (const k of tryDirs) { await cli.keyboard.press(k); await sleep(250); if (await host.evaluate(() => __game.sim.abilities.some(a => a.owner === 1))) break; }
+  ok(await host.evaluate(() => __game.sim.abilities.some(a => a.owner === 1)), 'client arrow key spawns an ability square on the host');
+  await until(cli, () => __game.net.snaps[__game.net.snaps.length - 1].a.length >= 1, 'client sees the square in the public snapshot');
+  ok(await cli.evaluate(() => { const sn = __game.net.snaps[__game.net.snaps.length - 1]; return !/"hp"|heart/i.test(JSON.stringify(sn)); }), 'abilities add no hearts to the public snapshot');
+  await sleep(3200);                                              // it expires (0.5 + 2 + 0.5 s)
+  ok(await host.evaluate(() => __game.sim.abilities.length === 0), 'the square disappears again after ~3 s');
 
   // Combat: put them face-to-face, host dashes into the client.
   await sleep(800);

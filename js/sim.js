@@ -40,6 +40,18 @@
     HEART_REVEAL: 2.0,             // s a hit cube shows its hearts to everyone (renderer side)
     RESPAWN_DELAY: 2.5,
     TEAM_SIZE: 3,
+    MATCH_SECONDS: 300,            // a match lasts 5 minutes
+    MATCH_OVER_SECONDS: 8,         // the result banner stays this long, then a fresh match starts
+    REGEN_DELAY: 5,                // s without being hit before hearts start coming back
+    REGEN_EVERY: 2,                // s between regeneration ticks …
+    REGEN_AMOUNT: 0.5,             // … each one gives back this many hearts. A new hit restarts the REGEN_DELAY wait.
+    ABILITY_SIZE: 64,              // the arrow-key square: a little smaller than a cube (80)
+    ABILITY_GAP: 6,                // px between your cube and a freshly spawned square
+    ABILITY_GROW: 0.5,             // s, ease-out with a small bounce at full size
+    ABILITY_HOLD: 2,               // s the square stays at full size
+    ABILITY_SHRINK: 0.5,           // s, the grow animation played backwards
+    ABILITY_COOLDOWN: 0.5,         // s before the same player can spawn another one
+    ABILITY_MAX: 3,                // squares one player can have alive at once
   };
   
   // Static scenery + pushable crates. Shared by host and clients (clients draw it without Matter).
@@ -97,11 +109,14 @@
 
     const fighters = new Map();     // id -> fighter
     const score = { 1: 0, 2: 0 };   // eliminations per team
+    const match = { left: CFG.MATCH_SECONDS, over: false, winner: 0, overLeft: 0 };   // winner: 0 = draw
+    const abilities = [];            // live arrow-key squares: { id, owner, team, body, age, sc, vis }
+    let abSeq = 0;
     let time = 0;
     let events = [];
 
     const sim = {
-      engine, world, fighters, score, crateBodies, solidBodies, CFG,
+      engine, world, fighters, score, match, abilities, crateBodies, solidBodies, CFG,
       beforeStep: null,      // optional hook run at the start of every step (js/bots.js drives AI cubes from here)
       get time() { return time; },
     };
@@ -121,7 +136,7 @@
       });
       const f = {
         id, name, team, bot, ai, body, spawn: sp,
-        hp: CFG.HEARTS, alive: true, respawnAt: -1, rs: 0,
+        hp: CFG.HEARTS, regenAt: 0, abCd: 0, alive: true, respawnAt: -1, rs: 0,
         canJump: true, canDash: true, sinceFloor: 0, sinceContact: 0, lastNs: [{ x: 0, y: -1 }],
         dashT: 0, dashDir: { x: 1, y: 0 }, dashHit: new Set(),
         lockout: 0, contacts: [],
@@ -150,7 +165,7 @@
       Body.setVelocity(f.body, { x: 0, y: 0 });
       Body.setAngularVelocity(f.body, 0);
       Object.assign(f, {
-        hp: CFG.HEARTS, respawnAt: -1, alive: true,
+        hp: CFG.HEARTS, regenAt: 0, abCd: 0, respawnAt: -1, alive: true,
         canJump: true, canDash: true, dashT: 0, lockout: 0, dashCd: 0, pressT: 0, pendingSpace: false, fastFall: false, sinceContact: 0, sinceFloor: 0, contacts: [],
       });
       f.dashHit.clear();
@@ -174,7 +189,7 @@
     // Bodies a fighter can touch: static scenery + crates (fixed) + living fighters. Rebuilt only when that set changes.
     const sceneBodies = Composite.allBodies(world).slice();   // statics + crates (taken before any fighter is added)
     let scanCache = null;
-    const scanList = () => scanCache || (scanCache = sceneBodies.concat([...fighters.values()].filter(x => x.alive).map(x => x.body)));
+    const scanList = () => scanCache || (scanCache = sceneBodies.concat(abilities.map(a => a.body), [...fighters.values()].filter(x => x.alive).map(x => x.body)));
     // Anything any part of the cube is touching (walls, floors, ceilings, crates, other cubes).
     // `flush` = the MIDDLE of one of the cube's edges is touching it (not just a corner): that is what restores the dash.
     function scanContacts(f) {
@@ -307,6 +322,7 @@
 
     function hit(attacker, target) {
       target.hp -= 1; target.fastFall = false;
+      target.regenAt = time + CFG.REGEN_DELAY;      // being hit (again) restarts the wait before hearts come back
       attacker.stats.hits++;
       const p = target.body.position;
       const d = attacker.dashDir;
@@ -329,6 +345,11 @@
       if (!f.alive) { if (time >= f.respawnAt) respawn(f); return; }
       const b = f.body;
       f.contacts = scanContacts(f);
+      f.abCd = Math.max(0, f.abCd - STEP);
+      if (f.hp < CFG.HEARTS && time >= f.regenAt) {             // quiet for REGEN_DELAY → +0.5 hearts every REGEN_EVERY
+        f.hp = Math.min(CFG.HEARTS, f.hp + CFG.REGEN_AMOUNT);
+        f.regenAt = time + CFG.REGEN_EVERY;
+      }
 
       // Touching anything with any part of the cube: you can jump off it for a moment.
       // Touching it with the middle of an edge: your dash comes back too.
@@ -358,7 +379,7 @@
       }
 
       // Dash hits: one per target per dash, enemy team only.
-      if (f.dashT > 0) {
+      if (f.dashT > 0 && !match.over) {
         for (const c of f.contacts) {
           const t = c.other.fighter;
           if (t && t.alive && t.team !== f.team && !f.dashHit.has(t)) {
@@ -373,15 +394,89 @@
       if (p.x < -50 || p.x > W + 50 || p.y < -50 || p.y > H + 50) respawn(f);
     }
 
+    // ─────────────── abilities: arrow-key squares ───────────────
+    const DIRS = { l: [-1, 0], r: [1, 0], u: [0, -1], d: [0, 1] };
+    const easeOutBack = u => { const c1 = 1.4, c3 = c1 + 1, v = u - 1; return 1 + c3 * v * v * v + c1 * v * v; };   // peaks ≈ 1.07
+    const clamp01 = v => Math.max(0, Math.min(1, v));
+    // Visual scale over the square's life: grow (ease-out + bounce) → hold → the same animation reversed.
+    const abilityScale = age => {
+      const g = CFG.ABILITY_GROW, h = g + CFG.ABILITY_HOLD, e = h + CFG.ABILITY_SHRINK;
+      if (age < g) return easeOutBack(clamp01(age / g));
+      if (age < h) return 1;
+      if (age < e) return easeOutBack(clamp01(1 - (age - h) / CFG.ABILITY_SHRINK));
+      return 0;
+    };
+
+    // Spawn a physics square beside the owner (left / right / above / below), only if the full-size square fits there.
+    sim.useAbility = (id, dir) => {
+      const f = fighters.get(id), d = DIRS[dir];
+      if (!f || !f.alive || !d || f.abCd > 0 || match.over) return false;
+      if (abilities.filter(a => a.owner === id).length >= CFG.ABILITY_MAX) return false;
+      const size = CFG.ABILITY_SIZE, half = CFG.CUBE / 2, a = f.body.angle;
+      const ext = half * (Math.abs(Math.cos(a)) + Math.abs(Math.sin(a)));        // how far the (rotated) cube reaches along that axis
+      const x = f.body.position.x + d[0] * (ext + size / 2 + CFG.ABILITY_GAP);
+      const y = f.body.position.y + d[1] * (ext + size / 2 + CFG.ABILITY_GAP);
+      const probe = Bodies.rectangle(x, y, size, size);
+      let free = true;
+      for (const o of scanList()) if (Bounds.overlaps(probe.bounds, o.bounds) && Collision.collides(probe, o)) { free = false; break; }
+      if (!free) { emit({ e: 'abfail', id, x: r1(x), y: r1(y), size }); return false; }
+      const body = Bodies.rectangle(x, y, size, size, { friction: 0.6, frictionStatic: 0.9, restitution: 0.05, frictionAir: 0.004, density: 0.0012 });
+      Body.scale(body, 0.1, 0.1);                                                  // starts tiny; updateAbilities() grows it
+      f.abCd = CFG.ABILITY_COOLDOWN;                                               // only a spawn that happened starts the cooldown
+      const ab = { id: ++abSeq, owner: id, team: f.team, body, age: 0, sc: 0.1, vis: 0 };
+      body.ability = ab;
+      Composite.add(world, body);
+      abilities.push(ab);
+      scanCache = null;
+      emit({ e: 'ability', id, team: f.team, x: r1(x), y: r1(y) });
+      return true;
+    };
+
+    function updateAbilities() {
+      for (let i = abilities.length - 1; i >= 0; i--) {
+        const ab = abilities[i];
+        ab.age += STEP;
+        ab.vis = abilityScale(ab.age);
+        if (ab.age >= CFG.ABILITY_GROW + CFG.ABILITY_HOLD + CFG.ABILITY_SHRINK) {
+          Composite.remove(world, ab.body); abilities.splice(i, 1); scanCache = null; continue;
+        }
+        // The collider follows the animation (but never bigger than the real size, so the bounce can't shove neighbours).
+        const target = Math.max(0.1, Math.min(1, ab.vis));
+        if (Math.abs(target - ab.sc) > 1e-4) { Body.scale(ab.body, target / ab.sc, target / ab.sc); ab.sc = target; }
+      }
+    }
+
+    function clearAbilities() { for (const ab of abilities) Composite.remove(world, ab.body); abilities.length = 0; scanCache = null; }
+
+    // ─────────────── the 5-minute match ───────────────
+    function updateMatch() {
+      if (!match.over) {
+        match.left -= STEP;
+        if (match.left <= 0) {
+          match.left = 0; match.over = true; match.overLeft = CFG.MATCH_OVER_SECONDS;
+          match.winner = score[1] > score[2] ? 1 : score[2] > score[1] ? 2 : 0;
+          emit({ e: 'end', winner: match.winner, s: [score[1], score[2]] });
+        }
+      } else if ((match.overLeft -= STEP) <= 0) {
+        score[1] = 0; score[2] = 0;
+        match.left = CFG.MATCH_SECONDS; match.over = false; match.winner = 0;
+        clearAbilities();
+        for (const f of fighters.values()) { respawn(f); for (const k in f.stats) f.stats[k] = 0; }
+        emit({ e: 'start' });
+      }
+    }
+
     sim.step = () => {
       if (sim.beforeStep) sim.beforeStep(sim);
       // Remember last step's pose so renderers can interpolate between fixed steps (smooth motion at any refresh rate).
       for (const f of fighters.values()) { const p = f.body.position; f.px = p.x; f.py = p.y; f.pa = f.body.angle; f.prs = f.rs; f.pAlive = f.alive; }
       for (const b of crateBodies) { b.px = b.position.x; b.py = b.position.y; b.pa = b.angle; }
       for (const f of fighters.values()) preStep(f);
+      updateAbilities();
       Engine.update(engine, STEP_MS);
       time += STEP;
       for (const f of fighters.values()) postStep(f);
+      updateMatch();
     };
 
     // ─────────────── outputs ───────────────
@@ -391,6 +486,8 @@
       f: [...fighters.values()].map(f => [f.id, r1(f.body.position.x), r1(f.body.position.y), r3(f.body.angle), f.alive ? 1 : 0, f.rs]),
       c: crateBodies.map(b => [r1(b.position.x), r1(b.position.y), r3(b.angle)]),
       s: [score[1], score[2]],
+      m: [Math.round(match.left * 10) / 10, match.over ? 1 : 0, match.winner, Math.round(Math.max(0, match.overLeft) * 10) / 10],   // [seconds left, over?, winner (0 = draw), seconds until the next match]
+      a: abilities.map(a => [a.id, r1(a.body.position.x), r1(a.body.position.y), r3(a.body.angle), r3(a.vis), a.team]),
     });
     // Private state: sent only to the player it belongs to.
     sim.privateState = id => {
