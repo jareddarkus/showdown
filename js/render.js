@@ -58,22 +58,23 @@
         L.trees = Array.from({ length: L.n }, (_, i) => ({ x: (i + rnd() * 0.9) / L.n * L.tile, h: L.hMin + rnd() * (L.hMax - L.hMin), w: 0.27 + rnd() * 0.09, tiers: 4 + Math.floor(rnd() * 2) }));
         return L;
       }),
-      // waterfalls pour straight out of the cave ceiling to the floor. `layer` = drawn just before that tree layer (the trees in front
-      // hide where the water meets the ground). f = parallax factor, w = sheet width as a fraction of the screen height.
+      // Depth order, back → front: sky · mountains · forest (the OUTSIDE) · waterfalls · cave rock (the foreground) · the match.
+      // The waterfalls pour from the cave roof, right behind the cave rock and in front of the whole forest: big, close, blue.
+      // f = parallax factor (high = close), w = sheet width as a fraction of the screen height.
       falls: [
-        { layer: 2, f: 0.20, x: 650, w: 0.11, water: '#f1fbfd', streak: '#a9d6e0' },
-        { layer: 2, f: 0.26, x: 1850, w: 0.14, water: '#f5fcfd', streak: '#a9d6e0' },
-        { layer: 2, f: 0.22, x: 2950, w: 0.10, water: '#f1fbfd', streak: '#a9d6e0' },
+        { f: 0.46, x: 450, w: 0.15 }, { f: 0.50, x: 1550, w: 0.19 }, { f: 0.48, x: 2650, w: 0.16 },
       ].map(F => {
-        F.streaks = Array.from({ length: 26 }, () => ({ x: rnd(), w: 0.04 + rnd() * 0.09, len: 0.10 + rnd() * 0.18, v: 0.50 + rnd() * 0.55, p: rnd(), light: rnd() < 0.62 }));
-        F.spray = Array.from({ length: 14 }, () => ({ x: rnd() - 0.5, p: rnd(), s: 0.7 + rnd() * 0.9 }));
+        Object.assign(F, { water: '#7fc4ea', streakL: '#e6f6ff', streak: '#3b95cc', edge: 'rgba(32,104,158,.42)', wall: 'rgba(24,48,60,.55)' });
+        F.streaks = Array.from({ length: 28 }, () => ({ x: rnd(), w: 0.04 + rnd() * 0.09, len: 0.10 + rnd() * 0.18, v: 0.50 + rnd() * 0.55, p: rnd(), light: rnd() < 0.6 }));
+        F.spray = Array.from({ length: 16 }, () => ({ x: rnd() - 0.5, p: rnd(), s: 0.7 + rnd() * 0.9 }));
         return F;
       }),
-      // the cave roof: two layers of stalactites hanging from the top edge (the far one pale, the near one dark)
+      // the cave rock framing everything: two layers of stalactites + ragged side walls
       roof: [
-        { f: 0.12, col: '#58736f', tile: 3000, amp: 0.20, pts: ridge(64, 0.9) },
-        { f: 0.26, col: '#2f403d', tile: 2600, amp: 0.15, pts: ridge(56, 0.9) },
+        { f: 0.32, col: '#3f5753', tile: 3000, amp: 0.20, pts: ridge(64, 0.9) },
+        { f: 0.55, col: '#1f2c2a', tile: 2600, amp: 0.17, pts: ridge(56, 0.9) },
       ],
+      side: Array.from({ length: 40 }, () => rnd()),
       motes: Array.from({ length: 34 }, () => ({ x: rnd(), y: 0.08 + rnd() * 0.78, s: 2 + rnd() * 2.4, p: rnd() * 6.28, f: 0.1 + rnd() * 0.25 })),
     };
   })();
@@ -209,13 +210,9 @@
       }
       haze(floorY - ch * 0.46, floorY - ch * 0.12, 0.50);
 
-      // conifers, far → near. One path (all tiers of all trees) per layer = one fill. Waterfalls sit between layers.
+      // conifers, far → near. One path (all tiers of all trees) per layer = one fill.
       FOREST.trees.forEach((L, li) => {
         const tile = L.tile * sc, off = cam.x * L.f * sc, baseY = floorY + ch * L.base;
-        for (const F of FOREST.falls) if (F.layer === li) {
-          const ft = 3400 * sc, fx = (((F.x * sc - cam.x * F.f * sc) % ft) + ft) % ft;
-          for (let x = fx - ft; x < cw + ch; x += ft) if (x > -ch * 0.5) drawFall(F, x, ceilY - ch * 0.06, baseY + ch * 0.02, now);
-        }
         ctx.fillStyle = L.col; ctx.beginPath();
         for (const t of L.trees) {
           const h = t.h * ch, w = t.w * h;
@@ -233,13 +230,7 @@
         if (li < 2) haze(baseY - ch * 0.30, baseY + ch * 0.02, 0.34);
       });
 
-      drawRoof(ceilY);
-      // cave vignette: the edges of the screen fall into shadow
-      const vg = ctx.createRadialGradient(cw / 2, ch * 0.55, ch * 0.45, cw / 2, ch * 0.55, Math.max(cw, ch) * 0.78);
-      vg.addColorStop(0, 'rgba(8,20,18,0)'); vg.addColorStop(1, 'rgba(8,20,18,.34)');
-      ctx.fillStyle = vg; ctx.fillRect(0, 0, cw, ch);
-
-      // drifting motes (pollen / fireflies) — little squares, like everything else
+      // drifting motes (pollen / fireflies) — little squares, like everything else. They belong to the outside air.
       for (const m of FOREST.motes) {
         const x = (((m.x * cw * 1.6 + Math.sin(now * m.f + m.p) * 26 - cam.x * 0.22 * sc) % (cw * 1.6)) + cw * 1.6) % (cw * 1.6) - cw * 0.3;
         const y = m.y * ch + Math.cos(now * m.f * 1.3 + m.p) * 16;
@@ -247,11 +238,24 @@
         ctx.fillStyle = '#fffbe0'; ctx.fillRect(x, y, m.s, m.s);
       }
       ctx.globalAlpha = 1;
+
+      // waterfalls: in front of the entire forest, behind the cave rock; their source is hidden inside the roof
+      const ft = 3400 * sc;
+      for (const F of FOREST.falls) {
+        const fx = (((F.x * sc - cam.x * F.f * sc) % ft) + ft) % ft;
+        for (let x = fx - ft; x < cw + ch; x += ft) if (x > -ch * 0.6) drawFall(F, x, ceilY - ch * 0.12, floorY + ch * 0.01, now);
+      }
+
+      // the cave itself (foreground): roof, side walls, and a vignette so the edges of the screen fall into shadow
+      drawCave(ceilY);
+      const vg = ctx.createRadialGradient(cw / 2, ch * 0.55, ch * 0.45, cw / 2, ch * 0.55, Math.max(cw, ch) * 0.78);
+      vg.addColorStop(0, 'rgba(8,20,18,0)'); vg.addColorStop(1, 'rgba(8,20,18,.30)');
+      ctx.fillStyle = vg; ctx.fillRect(0, 0, cw, ch);
     }
     // One waterfall. x = centre, topY = up inside the cave roof, baseY = where it lands. Flat shapes; the motion is the streaks scrolling down.
     function drawFall(F, x, topY, baseY, now) {
       const w = F.w * ch, H_ = baseY - topY, wt = w, wb = w * 1.22;      // the sheet widens a little as it falls
-      ctx.fillStyle = 'rgba(40,66,64,.50)';                              // the wet cave wall the water runs down — it makes the sheet pop
+      ctx.fillStyle = F.wall;                                            // the wet cave wall the water runs down — it makes the sheet pop
       ctx.beginPath(); ctx.moveTo(x - wt * 1.05, topY); ctx.lineTo(x + wt * 1.05, topY); ctx.lineTo(x + wb * 1.3, baseY); ctx.lineTo(x - wb * 1.3, baseY); ctx.closePath(); ctx.fill();
       ctx.save();
       ctx.beginPath(); ctx.moveTo(x - wt / 2, topY); ctx.lineTo(x + wt / 2, topY); ctx.lineTo(x + wb / 2, baseY); ctx.lineTo(x - wb / 2, baseY); ctx.closePath();
@@ -259,33 +263,45 @@
       for (const k of F.streaks) {
         const len = k.len * ch, y = topY + ((((now * k.v * ch * 0.55 + k.p * H_) % (H_ + len)) + (H_ + len)) % (H_ + len)) - len;
         const sw = k.w * w, sx = x - wb / 2 + k.x * (wb - sw);
-        ctx.globalAlpha = k.light ? 0.9 : 0.55; ctx.fillStyle = k.light ? '#ffffff' : F.streak;
+        ctx.globalAlpha = k.light ? 0.7 : 0.38; ctx.fillStyle = k.light ? F.streakL : F.streak;
         ctx.fillRect(sx, y, sw, len);
       }
       ctx.globalAlpha = 1;
-      ctx.fillStyle = 'rgba(110,165,180,.35)';                           // shaded edges give the sheet some thickness
+      ctx.fillStyle = F.edge;                                            // shaded edges give the sheet some thickness
       ctx.fillRect(x - wb / 2, topY, w * 0.07, H_); ctx.fillRect(x + wb / 2 - w * 0.07, topY, w * 0.07, H_);
       ctx.restore();
       // foam + spray where it lands
-      ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.fillRect(x - wb * 0.8, baseY - ch * 0.014, wb * 1.6, ch * 0.014);
+      ctx.fillStyle = 'rgba(214,240,255,.7)'; ctx.fillRect(x - wb * 0.8, baseY - ch * 0.014, wb * 1.6, ch * 0.014);
       for (const p of F.spray) {
         const t = ((now * 0.45 + p.p) % 1 + 1) % 1, sz = ch * 0.02 * p.s * (0.5 + t);
-        ctx.globalAlpha = (1 - t) * 0.6; ctx.fillStyle = '#ffffff';
+        ctx.globalAlpha = (1 - t) * 0.65; ctx.fillStyle = '#e6f6ff';
         ctx.fillRect(x + p.x * wb * 1.9 + Math.sin(now + p.p * 9) * 8, baseY - ch * 0.014 - t * ch * 0.12, sz, sz);
       }
       ctx.globalAlpha = 1;
     }
-    // The cave roof: stalactites hang from the top of the screen, in front of the water's source. Tips alternate with valleys.
-    function drawRoof(ceilY) {
+    // The cave (the FOREGROUND): stalactites hang from the top, ragged rock closes in at the sides. The forest and the waterfalls are
+    // what you see through this opening. Roof tips alternate with valleys; the water's source is hidden behind it.
+    function drawCave(ceilY) {
       for (const R of FOREST.roof) {
         const tile = R.tile * cam.scale, off = cam.x * R.f * cam.scale, n = R.pts.length, step = 38;
         ctx.fillStyle = R.col; ctx.beginPath(); ctx.moveTo(0, -4);
         for (let x = 0, i = 0; x <= cw + step; x += step, i++) {
           const u = ((((x + off) % tile) + tile) % tile) / tile * n, k = Math.floor(u), t = u - k;
           const v = R.pts[k % n] * (1 - t) + R.pts[(k + 1) % n] * t;
-          ctx.lineTo(x, ceilY + ch * R.amp * v * (i % 2 ? 0.35 : 1));
+          ctx.lineTo(x, ceilY + ch * (0.03 + R.amp * v * (i % 2 ? 0.35 : 1)));
         }
         ctx.lineTo(cw + step, -4); ctx.closePath(); ctx.fill();
+      }
+      // side walls: a jagged vertical edge, wider toward the bottom
+      ctx.fillStyle = '#1b2826';
+      for (const dir of [-1, 1]) {
+        const x0 = dir < 0 ? 0 : cw;
+        ctx.beginPath(); ctx.moveTo(x0, -4);
+        for (let y = 0, i = 0; y <= ch + 44; y += 44, i++) {
+          const wd = cw * (0.010 + 0.040 * FOREST.side[(i + (dir > 0 ? 17 : 0)) % FOREST.side.length]) * (0.5 + 0.8 * Math.min(1, y / ch));
+          ctx.lineTo(dir < 0 ? wd : cw - wd, y);
+        }
+        ctx.lineTo(x0, ch + 4); ctx.closePath(); ctx.fill();
       }
     }
     function haze(y0, y1, a) {
