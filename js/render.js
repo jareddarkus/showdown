@@ -21,9 +21,9 @@
   const { W, H } = CFG;
   const T_FONT = 'Unbounded, system-ui, sans-serif', B_FONT = 'Lexend, system-ui, sans-serif';
   const COLORS = {
-    solid: '#2a3835', solidTop: '#566a65', box: '#ddd6c4',
+    solid: '#2a3835', solidTop: '#566a65', box: '#46675f', boxTop: '#73968b',
     team1: '#ff6a4d', team2: '#f2b632', ability1: '#ff9c88', ability2: '#f6cf72',
-    blue: '#1e88ff', ink: '#23232b', hitFlash: '#23232b', spark: '#ffffff',
+    dash: '#ffffff', ink: '#23232b', hitFlash: '#23232b', spark: '#ffffff',
   };
   const teamColor = t => (t === 1 ? COLORS.team1 : COLORS.team2);
   const TEAM_NAME = { 1: 'RED', 2: 'YELLOW' };
@@ -89,6 +89,7 @@
     const particles = [], floaters = [], ghosts = [];
     const reveal = new Map();   // id -> { hp, until }   (heart reveal after a hit)
     const flash = new Map();    // id -> until
+    let goAt = null;            // when the last match started (drives the "GO!" pop-up)
 
     function resize() {
       dpr = Math.min(window.devicePixelRatio || 1, dprCap);
@@ -112,8 +113,8 @@
       switch (ev.e) {
         case 'dash': burst(ev.x, ev.y, teamColor(ev.team), 6, 2.5); break;
         case 'reset':
-          burst(ev.x, ev.y, COLORS.blue, 12, 4);
-          if (ev.id === myId) floater('DASH RESET', ev.x, ev.y - CFG.CUBE / 2 - 28, COLORS.blue);
+          burst(ev.x, ev.y, COLORS.dash, 14, 4.5);
+          if (ev.id === myId) floater('DASH RESET', ev.x, ev.y - CFG.CUBE / 2 - 28, COLORS.dash);
           break;
         case 'hit':
           reveal.set(ev.id, { hp: ev.hp, until: now + CFG.HEART_REVEAL });
@@ -126,7 +127,8 @@
         case 'die': burst(ev.x, ev.y, teamColor(ev.team), 30, 8); reveal.delete(ev.id); break;
         case 'ability': burst(ev.x, ev.y, ev.team === 1 ? COLORS.ability1 : COLORS.ability2, 8, 3); break;
         case 'abfail': if (ev.id === myId) ghosts.push({ x: ev.x, y: ev.y, size: ev.size, until: now + 0.4, from: now }); break;   // "no room here"
-        case 'start': case 'spawn': break;
+        case 'start': goAt = now; break;                    // a new match begins → "GO!"
+        case 'spawn': break;
         default: break;
       }
     }
@@ -360,6 +362,9 @@
         const d = LAYOUT.crates[i];
         rectPath(c[0], c[1], d[2], d[3], c[2]);
         ctx.fillStyle = COLORS.box; ctx.fill();
+        const dy = -d[3] / 2 + 3, th = Math.min(6, d[3]);                                      // lit top edge, like the solids
+        rectPath(c[0] - dy * Math.sin(c[2]), c[1] + dy * Math.cos(c[2]), d[2], th, c[2]);
+        ctx.fillStyle = COLORS.boxTop; ctx.fill();
       });
 
       // Arrow-key squares: they pop in (ease-out, a little bounce) and pop out (the same, reversed).
@@ -385,18 +390,23 @@
         ctx.fillStyle = fl > view.now ? COLORS.hitFlash : teamColor(f.team); ctx.fill();      // flat fill, no border
 
         if (isMe) {
-          // Dash window: thin blue border, only you see it.
+          // Dash window: a white ring hugging the cube (with a dark rim underneath so it shows on any background). Only you see it.
           if (view.me.dashT > 0) {
-            ctx.save(); rectPath(f.x, f.y, CFG.CUBE, CFG.CUBE, f.a);
-            ctx.lineWidth = 2.2 * z; ctx.strokeStyle = COLORS.blue; ctx.lineJoin = 'miter'; ctx.stroke(); ctx.restore();
+            ctx.save(); ctx.lineJoin = 'miter';
+            rectPath(f.x, f.y, CFG.CUBE + 5, CFG.CUBE + 5, f.a);
+            ctx.lineWidth = 8 * z; ctx.strokeStyle = 'rgba(14,26,24,.45)'; ctx.stroke();
+            ctx.shadowColor = 'rgba(255,255,255,.9)'; ctx.shadowBlur = 14;
+            ctx.lineWidth = 4 * z; ctx.strokeStyle = COLORS.dash; ctx.stroke();
+            ctx.restore();
           }
           if ((view.me.dash || view.me.jump) && view.aim.active) {
-            ctx.save(); ctx.setLineDash([6 * z, 8 * z]);
-            ctx.lineWidth = 2 * z; ctx.strokeStyle = 'rgba(30,136,255,.7)';
+            ctx.save(); ctx.setLineDash([7 * z, 8 * z]); ctx.lineCap = 'butt';
             ctx.beginPath();
             ctx.moveTo(f.x + view.aim.x * CFG.CUBE * 0.7, f.y + view.aim.y * CFG.CUBE * 0.7);
             ctx.lineTo(f.x + view.aim.x * CFG.CUBE * 2.3, f.y + view.aim.y * CFG.CUBE * 2.3);
-            ctx.stroke(); ctx.restore();
+            ctx.lineWidth = 6 * z; ctx.strokeStyle = 'rgba(14,26,24,.4)'; ctx.stroke();
+            ctx.lineWidth = 3 * z; ctx.strokeStyle = 'rgba(255,255,255,.95)'; ctx.stroke();
+            ctx.restore();
           }
         } else {
           // Others' hearts: only for 2 s after they were hit. Yours live in the top-right corner.
@@ -461,6 +471,31 @@
       ctx.textBaseline = 'alphabetic';
     }
 
+    // Smash-style "GO!": two slanted slabs slam in, the letters overshoot and settle, hold, then zoom out and fade.
+    const easeOutBack = u => { const c1 = 1.9, c3 = c1 + 1, v = u - 1; return 1 + c3 * v * v * v + c1 * v * v; };
+    function drawGo(view) {
+      if (goAt === null) return;
+      const e = view.now - goAt;
+      if (e < 0 || e > 1.5) return;
+      const pop = e < 0.32 ? easeOutBack(e / 0.32) : 1;
+      const out = e > 1.0 ? (e - 1.0) / 0.5 : 0;                                  // 0 → 1 while it leaves
+      const sc = pop * (1 + out * 0.45) * (1 + 0.015 * Math.sin(e * 14));
+      const alpha = 1 - out;
+      const cx = cw / 2, cy = ch * 0.42, size = Math.min(ch * 0.30, cw * 0.22);
+      const sw = size * 3.1, sh = size * 1.35, sl = size * 0.42;
+      ctx.save(); ctx.globalAlpha = Math.max(0, alpha);
+      ctx.translate(cx, cy); ctx.scale(sc, sc);
+      // back slab (yellow team) sliding in a hair later than the front one (red team)
+      const k = Math.min(1, e / 0.22), k2 = Math.min(1, Math.max(0, (e - 0.05) / 0.22));
+      para(-sw / 2 + size * 0.22, -sh / 2 + size * 0.14, sw * k, sh, sl); ctx.fillStyle = COLORS.team2; ctx.fill();
+      para(-sw / 2, -sh / 2, sw * k2, sh, sl); ctx.fillStyle = COLORS.team1; ctx.fill();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `900 ${size}px ${T_FONT}`;
+      ctx.fillStyle = 'rgba(14,26,24,.35)'; ctx.fillText('GO!', size * 0.05, size * 0.09);   // drop shadow
+      ctx.fillStyle = '#fff'; ctx.fillText('GO!', 0, size * 0.03);
+      ctx.restore();
+      ctx.textBaseline = 'alphabetic';
+    }
+
     function drawHUD(view) {
       const me = view.me;
       if (me) {
@@ -481,6 +516,7 @@
       }
       drawStrip(view);
       drawBanner(view);
+      drawGo(view);
     }
 
     let first = true;
@@ -499,7 +535,7 @@
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       drawHUD(view);
     }
-    function resetEffects() { particles.length = 0; floaters.length = 0; ghosts.length = 0; reveal.clear(); flash.clear(); first = true; }
+    function resetEffects() { goAt = null; particles.length = 0; floaters.length = 0; ghosts.length = 0; reveal.clear(); flash.clear(); first = true; }
 
     const lowerResolution = () => { const eff = Math.min(window.devicePixelRatio || 1, dprCap); if (eff > 0.75) { dprCap = Math.max(0.75, eff - 0.5); resize(); } };
     return { draw, handleEvent, resetEffects, resize, lowerResolution, dprCap: () => Math.min(window.devicePixelRatio || 1, dprCap) };

@@ -499,6 +499,7 @@
     if (opts.bots) {
       [1100, 2300, 2900].forEach((x, i) => sim.addFighter({ id: 'bot' + i, name: 'Bot', team: 2, bot: true, at: { x, y: H - CFG.CUBE / 2 - 12 } }));
     }
+    emit({ e: 'start' });          // the renderer pops a "GO!"
     return sim;
   }
 

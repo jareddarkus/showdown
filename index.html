@@ -29,7 +29,10 @@
   #help kbd { display:inline-block; min-width:20px; text-align:center; padding:0 5px; margin-right:2px;
     background:var(--ink); color:#fff; font:400 11px/18px Lexend, system-ui, sans-serif; clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%); }
   #help .dim { color:var(--muted); }
+  #hint kbd { display:inline-block; min-width:18px; text-align:center; padding:0 5px; margin-right:4px; background:var(--ink); color:#fff; font:400 11px/17px Lexend, system-ui, sans-serif; clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%); }
   #help.hidden { display:none; }
+  #hint { display:none; font-size:11px; color:#41524d; padding:0 0 0 22px; user-select:none; }
+  #help.hidden + #hint { display:block; }
   #pad { position:fixed; left:16px; bottom:14px; font-size:12px; color:#41524d; user-select:none; }
   #pad.on { color:var(--ink); }
   #fps { position:fixed; right:76px; bottom:12px; font:400 12px Lexend, system-ui, sans-serif; font-variant-numeric:tabular-nums; color:#41524d; user-select:none; text-align:right; max-width:60vw; }
@@ -50,7 +53,7 @@
   #roster .t1 { color:#ff8a72; } #roster .t2 { color:#f2c24f; }
   @media (max-width: 1100px) { #left { top:76px; } }   /* keep the left column clear of the match clock */
   /* Touch devices: keep the chrome out of the way of the thumbs */
-  body.touch #pad, body.touch #help { display:none; }
+  body.touch #pad, body.touch #help, body.touch #hint { display:none !important; }
   body.touch #left { top:72px; left:8px; width:auto; max-width:calc(100vw - 196px); }
   body.touch #menu { padding:6px 24px 6px 16px; }
   body.touch #menu input { width:90px; } body.touch #menu #code { width:64px; }
@@ -75,7 +78,7 @@
     <div id="roster"></div>
   </div>
 
-  <div id="help" class="rh">
+  <div id="help" class="rh hidden">
     <div class="title">Cube League <span class="dim">· 3v3 arena · 3 min</span></div>
     <div><kbd>A</kbd><kbd>D</kbd> roll on the ground</div>
     <div><kbd>Space</kbd> touching anything → <b>jump</b> off it · in the air (the void) → <b>dash</b></div>
@@ -83,11 +86,12 @@
     <div><b>In the air:</b> <kbd>A</kbd><kbd>D</kbd> steer · <kbd>W</kbd> fall slower · <kbd>S</kbd> while falling = <b>fast fall</b></div>
     <div><b>Ability:</b> <kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd> a small physics square pops out beside you for 2 s (only if there is room) — a wall, a step, or a dash-reset surface</div>
     <div><b>Dash reset:</b> touch any surface with the <b>middle of one of your edges</b> (not a corner) — other cubes count too, and touching one gives <i>them</i> a free reset</div>
-    <div><b>Hearts:</b> a dash hit during the blue outline costs one. After 5 s without being hit you heal ½ heart every 2 s</div>
+    <div><b>Hearts:</b> a dash hit during the white outline costs one. After 5 s without being hit you heal ½ heart every 2 s</div>
     <div>Practice is 3v3 vs bots — <kbd>B</kbd> cycles their skill (off · easy · normal · hard)</div>
     <div><kbd>R</kbd> respawn (practice only) · <kbd>H</kbd> hide this</div>
     <div class="dim" style="margin-top:4px">🎮 Left stick move + aim · right stick aim · R1 jump/dash · D-pad abilities · Options reset (practice) · <kbd>F</kbd> fps</div>
   </div>
+  <div id="hint"><kbd>H</kbd> controls</div>
 </div>
 <div id="rotate">Rotate your phone sideways to play</div>
 <div id="ver"></div>

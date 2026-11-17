@@ -39,6 +39,8 @@ const until = async (page, fn, msg, ms = 8000) => { const t = Date.now(); while 
   await host.goto(URL_ + '&bots=off');          // the 3v3 is there, but standing still: this section tests input mapping, not the AI
   ok(await host.evaluate(() => __game.mode === 'solo' && __game.sim.fighters.size === 6), 'solo practice boots as 3v3: player + 2 allies + 3 enemy bots');
   // ── controller mapping (solo practice) ──
+  // Start from open floor: the idle allies next to the spawn would otherwise sometimes stay in contact (a jump aimed along a touched side goes sideways, by design).
+  await host.evaluate(() => { const f = __game.sim.fighters.get(0), B = Matter.Body; B.setPosition(f.body, { x: 520, y: 1060 }); B.setVelocity(f.body, { x: 0, y: 0 }); B.setAngle(f.body, 0); B.setAngularVelocity(f.body, 0); });
   const pad = (axes, btn) => host.evaluate(([a, b]) => { __pad.axes = a; __pad.buttons.forEach((x, i) => { x.pressed = x.value = (i === b ? 1 : 0); }); }, [axes, btn]);
   await sleep(800);
   const px0 = await host.evaluate(() => __game.sim.fighters.get(0).body.position.x);
@@ -47,7 +49,17 @@ const until = async (page, fn, msg, ms = 8000) => { const t = Date.now(); while 
   await sleep(1200);
   await pad([0, 0, 0, 0], 0); await sleep(150); await pad([0, 0, 0, 0], -1);
   ok(await host.evaluate(() => __game.sim.fighters.get(0).canJump === true), 'controller: ✕ (button 0) is not bound to jump');
-  const v1 = await host.evaluate(async () => { const f = __game.sim.fighters.get(0); __pad.axes = [0, 0, 1, 0]; await new Promise(r => setTimeout(r, 100)); __pad.buttons[5].pressed = __pad.buttons[5].value = 1; await new Promise(r => setTimeout(r, 120)); __pad.buttons[5].pressed = __pad.buttons[5].value = 0; __pad.axes = [0, 0, 0, 0]; return { vx: f.body.velocity.x, vy: f.body.velocity.y, canJump: f.canJump }; });
+  await host.evaluate(() => { const f = __game.sim.fighters.get(0), B = Matter.Body; B.setPosition(f.body, { x: 700, y: 1060 }); B.setVelocity(f.body, { x: 0, y: 0 }); B.setAngle(f.body, 0); B.setAngularVelocity(f.body, 0); });
+  await sleep(900);                                              // park on open floor again so the two rolls above can't stack up against a crate
+  // Read the launch velocity on the very step the jump fires (headless timers drift, and vy decays through 0 about 250 ms after a jump).
+  const v1 = await host.evaluate(async () => {
+    const f = __game.sim.fighters.get(0), sim = __game.sim, orig = sim.step; let cap = null;
+    sim.step = () => { const was = f.canJump; orig(); if (was && !f.canJump && !cap) cap = { vx: f.body.velocity.x, vy: f.body.velocity.y }; };
+    __pad.axes = [0, 0, 1, 0]; await new Promise(r => setTimeout(r, 100));
+    __pad.buttons[5].pressed = __pad.buttons[5].value = 1; await new Promise(r => setTimeout(r, 160)); __pad.buttons[5].pressed = __pad.buttons[5].value = 0; __pad.axes = [0, 0, 0, 0];
+    sim.step = orig;
+    return { vx: cap ? cap.vx : 0, vy: cap ? cap.vy : 0, canJump: f.canJump && !cap };
+  });
   ok(!v1.canJump && v1.vx > 4 && v1.vy < 0, `controller: R1 + right stick right = jump leaning right (vx ${v1.vx.toFixed(1)}, vy ${v1.vy.toFixed(1)})`);
   await sleep(300);
   const dashUp = await host.evaluate(async () => { const f = __game.sim.fighters.get(0); __pad.axes = [0, 0, 0, -1]; await new Promise(r => setTimeout(r, 100)); __pad.buttons[5].pressed = __pad.buttons[5].value = 1; await new Promise(r => setTimeout(r, 100)); __pad.buttons[5].pressed = __pad.buttons[5].value = 0; await new Promise(r => setTimeout(r, 100)); __pad.buttons[5].pressed = __pad.buttons[5].value = 1; await new Promise(r => setTimeout(r, 60)); const d = { dashY: f.dashDir.y, dashT: f.dashT }; __pad.buttons[5].pressed = __pad.buttons[5].value = 0; __pad.axes = [0, 0, 0, 0]; return d; });
@@ -74,7 +86,9 @@ const until = async (page, fn, msg, ms = 8000) => { const t = Date.now(); while 
   {
     const mctx = await browser.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
     const ph = await mctx.newPage(); ph.on('pageerror', e => errors.push('phone: ' + e.message));
-    await ph.goto(URL_ + '&touch=1'); await sleep(1200);
+    await ph.goto(URL_ + '&touch=1&bots=off'); await sleep(1200);      // this section tests the touch controls, not the AI (live bots would attack the player mid-test)
+    await ph.evaluate(() => { const f = __game.sim.fighters.get(0), B = Matter.Body; B.setPosition(f.body, { x: 520, y: 1060 }); B.setVelocity(f.body, { x: 0, y: 0 }); B.setAngle(f.body, 0); B.setAngularVelocity(f.body, 0); });
+    await sleep(600);
     ok(await ph.evaluate(() => !!document.getElementById('tbtn') && !!document.getElementById('tbase')), 'phone: joystick and button are present');
     const op = await ph.evaluate(() => ({ base: getComputedStyle(document.getElementById('tbase')).borderTopColor, btn: getComputedStyle(document.getElementById('tbtn')).borderTopColor }));
     ok(op.base === op.btn && /rgba/.test(op.base), 'phone: joystick and button share the same translucent style (' + op.base + ')');
