@@ -64,7 +64,7 @@
       falls: [
         { f: 0.46, x: 450, w: 0.15 }, { f: 0.50, x: 1550, w: 0.19 }, { f: 0.48, x: 2650, w: 0.16 },
       ].map(F => {
-        Object.assign(F, { water: '#7fc4ea', streakL: '#e6f6ff', streak: '#3b95cc', edge: 'rgba(32,104,158,.42)', wall: 'rgba(24,48,60,.55)' });
+        Object.assign(F, { water: '#7fc4ea', streakL: '#e6f6ff', streak: '#3b95cc', edge: 'rgba(32,104,158,.42)' });
         F.streaks = Array.from({ length: 28 }, () => ({ x: rnd(), w: 0.04 + rnd() * 0.09, len: 0.10 + rnd() * 0.18, v: 0.50 + rnd() * 0.55, p: rnd(), light: rnd() < 0.6 }));
         F.spray = Array.from({ length: 16 }, () => ({ x: rnd() - 0.5, p: rnd(), s: 0.7 + rnd() * 0.9 }));
         return F;
@@ -255,8 +255,6 @@
     // One waterfall. x = centre, topY = up inside the cave roof, baseY = where it lands. Flat shapes; the motion is the streaks scrolling down.
     function drawFall(F, x, topY, baseY, now) {
       const w = F.w * ch, H_ = baseY - topY, wt = w, wb = w * 1.22;      // the sheet widens a little as it falls
-      ctx.fillStyle = F.wall;                                            // the wet cave wall the water runs down — it makes the sheet pop
-      ctx.beginPath(); ctx.moveTo(x - wt * 1.05, topY); ctx.lineTo(x + wt * 1.05, topY); ctx.lineTo(x + wb * 1.3, baseY); ctx.lineTo(x - wb * 1.3, baseY); ctx.closePath(); ctx.fill();
       ctx.save();
       ctx.beginPath(); ctx.moveTo(x - wt / 2, topY); ctx.lineTo(x + wt / 2, topY); ctx.lineTo(x + wb / 2, baseY); ctx.lineTo(x - wb / 2, baseY); ctx.closePath();
       ctx.fillStyle = F.water; ctx.fill(); ctx.clip();
