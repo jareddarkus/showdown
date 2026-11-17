@@ -81,10 +81,12 @@
     engine.gravity.scale = CFG.GRAVITY_SCALE;
     const world = engine.world;
 
-    for (const r of LAYOUT.shell.concat(LAYOUT.solids)) {
+    const solidBodies = [];     // floating blocks + centre block (everything except the arena shell) — AI navigation uses these
+    LAYOUT.shell.concat(LAYOUT.solids).forEach((r, i) => {
       const b = Bodies.rectangle(r[0], r[1], r[2], r[3], { isStatic: true, friction: 0.8, frictionStatic: 1, restitution: 0 });
       Composite.add(world, b);
-    }
+      if (i >= LAYOUT.shell.length) solidBodies.push(b);
+    });
     const crateBodies = LAYOUT.crates.map(r => {
       const b = Bodies.rectangle(r[0], r[1], r[2], r[3], {
         friction: 0.5, frictionStatic: 0.8, restitution: 0.05, frictionAir: 0.004, density: r[4] || 0.0007,
@@ -99,7 +101,8 @@
     let events = [];
 
     const sim = {
-      engine, world, fighters, score, crateBodies, CFG,
+      engine, world, fighters, score, crateBodies, solidBodies, CFG,
+      beforeStep: null,      // optional hook run at the start of every step (js/bots.js drives AI cubes from here)
       get time() { return time; },
     };
 
@@ -109,7 +112,7 @@
     // ─────────────── roster ───────────────
     sim.teamCount = team => { let n = 0; for (const f of fighters.values()) if (f.team === team && !f.bot) n++; return n; };
 
-    sim.addFighter = ({ id, name, team, bot = false, at = null }) => {
+    sim.addFighter = ({ id, name, team, bot = false, ai = false, at = null }) => {
       let slot = 0;
       for (const f of fighters.values()) if (f.team === team) slot++;
       const sp = at ? { x: at.x, y: at.y } : spawnPoint(team, slot);
@@ -117,7 +120,7 @@
         friction: 0.8, frictionStatic: 1, frictionAir: 0.003, restitution: 0.05, density: 0.002,
       });
       const f = {
-        id, name, team, bot, body, spawn: sp,
+        id, name, team, bot, ai, body, spawn: sp,
         hp: CFG.HEARTS, alive: true, respawnAt: -1, rs: 0,
         canJump: true, canDash: true, sinceFloor: 0, sinceContact: 0, lastNs: [{ x: 0, y: -1 }],
         dashT: 0, dashDir: { x: 1, y: 0 }, dashHit: new Set(),
@@ -252,7 +255,8 @@
       f.sinceContact += STEP;
       f.canJump = f.sinceContact <= CFG.COYOTE;
 
-      if (!f.bot) {
+      const driven = !f.bot || f.ai;     // stationary dummies (bot without ai) ignore all input
+      if (driven) {
         // Rotation: build spin toward the target, damp lightly in the air.
         const grounded = f.sinceFloor < 0.04;
         let av = b.angularVelocity;
@@ -271,7 +275,7 @@
         }
       }
       // Air control (not while dashing). A/D steer sideways.
-      if (f.dashT <= 0 && f.sinceFloor > 0.04 && !f.bot) {
+      if (f.dashT <= 0 && f.sinceFloor > 0.04 && driven) {
         const v = b.velocity, ax = f.inp.mx, top = ax * CFG.AIR_MAX_X;      // a gentle push steers gently: top speed scales with the stick
         let vx = v.x;
         if (ax > 0 && vx < top) vx = Math.min(top, vx + CFG.AIR_ACCEL_X * ax);
@@ -284,11 +288,11 @@
       if (f.fastFall && b.velocity.y < 0) f.fastFall = false;                    // bounced upward: over
       if (f.dashT <= 0 && f.sinceFloor > 0.04) {
         let vy = b.velocity.y;
-        if (!f.bot && !f.fastFall && f.inp.my > 0.5 && vy > 0 && f.sinceContact > 0.04) {
+        if (driven && !f.fastFall && f.inp.my > 0.5 && vy > 0 && f.sinceContact > 0.04) {
           f.fastFall = true;
           emit({ e: 'fastfall', id: f.id, x: r1(b.position.x), y: r1(b.position.y) });
         }
-        const cap = f.fastFall ? CFG.FAST_FALL_V : (f.inp.my < -0.5 && !f.bot ? CFG.FALL_SLOW : CFG.FALL_MAX);
+        const cap = f.fastFall ? CFG.FAST_FALL_V : (f.inp.my < -0.5 && driven ? CFG.FALL_SLOW : CFG.FALL_MAX);
         if (f.fastFall) vy = cap;                                                // snap, then hold
         else if (vy > cap) vy = Math.max(cap, vy - CFG.FALL_DECEL);
         if (vy !== b.velocity.y) Body.setVelocity(b, { x: b.velocity.x, y: vy });
@@ -370,6 +374,7 @@
     }
 
     sim.step = () => {
+      if (sim.beforeStep) sim.beforeStep(sim);
       // Remember last step's pose so renderers can interpolate between fixed steps (smooth motion at any refresh rate).
       for (const f of fighters.values()) { const p = f.body.position; f.px = p.x; f.py = p.y; f.pa = f.body.angle; f.prs = f.rs; f.pAlive = f.alive; }
       for (const b of crateBodies) { b.px = b.position.x; b.py = b.position.y; b.pa = b.angle; }

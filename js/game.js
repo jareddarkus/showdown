@@ -15,6 +15,7 @@
   // ───────────────────────── Mode state ─────────────────────────
   let mode = 'solo';           // 'solo' | 'host' | 'client'
   let sim = null;              // solo + host only
+  let bots = null;             // AI controller (solo practice only)
   let host = null, client = null;
   let myId = 0;
   let roster = new Map();      // id -> {name, team}   (clients; host/solo read the sim)
@@ -24,17 +25,22 @@
   function teardown() {
     if (host) host.close();
     if (client) client.close();
-    host = client = sim = null;
+    host = client = sim = bots = null;
     net.snaps = []; net.offset = null; net.me = null; net.score = [0, 0]; net.lastSent = '';
     stepsSinceSnap = 0; roster = new Map();
     renderer.resetEffects();
   }
+  let botLevel = new URLSearchParams(location.search).get('bots') || 'normal';
+  const cycleBots = () => { if (bots) { botLevel = bots.cycle(); setMenu(); } };
   const nameVal = () => { const n = CubeNet.cleanName($('name').value); try { localStorage.setItem('cl_name', n); } catch (e) { /* private mode */ } return n; };
 
   function startSolo() {
     teardown(); mode = 'solo'; myId = 0;
-    sim = CubeSim.create({ bots: true });
+    sim = CubeSim.create({ bots: false });
     sim.addFighter({ id: 0, name: 'You', team: 1 });
+    // Practice is a full 3v3: you + 2 allies vs 3 enemies, all AI-driven. ?bots=off|easy|normal|hard sets the starting level.
+    bots = CubeBots.create(sim, { level: botLevel });
+    bots.fill(CubeSim.CFG.TEAM_SIZE);
     setMenu();
   }
 
@@ -86,6 +92,7 @@
     keys.add(e.code);
     if (e.code === 'Space') { pressSpace(); e.preventDefault(); }
     if (e.code === 'KeyR') tryRespawn();
+    if (e.code === 'KeyB') cycleBots();
     if (e.code === 'KeyH') $('help').classList.toggle('hidden');
     if (e.code === 'KeyF') perf.show = !perf.show;
   });
@@ -220,7 +227,7 @@
     return {
       fighters, crates: sim.crateBodies.map(b => (b.px === undefined ? [b.position.x, b.position.y, b.angle] : [b.px + (b.position.x - b.px) * al, b.py + (b.position.y - b.py) * al, b.pa + (b.angle - b.pa) * al])),
       me: me ? { id: myId, ...sim.privateState(myId) } : null,
-      score: mode === 'host' ? [sim.score[1], sim.score[2]] : null,
+      score: mode !== 'client' ? [sim.score[1], sim.score[2]] : null,
     };
   }
 
@@ -231,7 +238,9 @@
     $('btnLeave').hidden = !inRoom;
     $('btnHost').hidden = $('btnJoin').hidden = $('code').hidden = inRoom;
     $('btnCopy').hidden = mode !== 'host' || !host || !host.code;
-    if (mode === 'solo') { setStatus('Practice — host a game or enter a code to join friends.'); $('roster').textContent = ''; return; }
+    $('btnBots').hidden = mode !== 'solo';
+    if (bots) $('btnBots').textContent = 'Bots: ' + bots.level;
+    if (mode === 'solo') { setStatus('Practice 3v3 vs bots — host a game or enter a code to join friends.'); $('roster').textContent = ''; return; }
     const code = mode === 'host' ? (host && host.code) : (client && client.code);
     const r = mode === 'host' ? [...sim.fighters.values()].filter(f => !f.bot).map(f => [f.id, f.name, f.team]) : [...roster].map(([id, v]) => [id, v.name, v.team]);
     setStatus(code ? `Room ${code} · ${r.length}/${CubeNet.MAX_PLAYERS} players` + (mode === 'host' ? ' · keep this tab in the foreground' : '') : 'Connecting…');
@@ -249,6 +258,7 @@
   $('btnJoin').onclick = () => { $('btnJoin').blur(); const c = CubeNet.cleanCode($('code').value); if (c.length === 5) startClient(c); else setStatus('Enter the 5-character room code.'); };
   $('code').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnJoin').click(); });
   $('btnLeave').onclick = () => { $('btnLeave').blur(); startSolo(); };
+  $('btnBots').onclick = () => { $('btnBots').blur(); cycleBots(); };
   $('btnCopy').onclick = () => {
     $('btnCopy').blur();
     const url = location.origin + location.pathname + '?join=' + host.code;
@@ -366,7 +376,7 @@
     CFG, input, keys, perf,
     get sim() { return sim; }, get mode() { return mode; }, get myId() { return myId; },
     get host() { return host; }, get client() { return client; }, get net() { return net; },
-    get roster() { return roster; }, get time() { return sim ? sim.time : 0; },
+    get roster() { return roster; }, get time() { return sim ? sim.time : 0; }, get bots() { return bots; },
     stepSim: () => sim && sim.step(), startSolo, startHost, startClient,
   };
 })();

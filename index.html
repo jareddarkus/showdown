@@ -57,6 +57,7 @@
   <button id="btnJoin" class="alt">Join</button>
   <button id="btnCopy" class="alt" hidden>Copy invite link</button>
   <button id="btnLeave" class="alt" hidden>Leave</button>
+  <button id="btnBots" class="alt" title="Bot skill (B)">Bots: normal</button>
   <div id="status"></div>
   <div id="roster"></div>
 </div>
@@ -68,7 +69,7 @@
   <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> aim the dash <span class="dim">(none = straight ahead of the cube, no marker)</span></div>
   <div><b>In the air:</b> <kbd>A</kbd><kbd>D</kbd> steer · <kbd>W</kbd> fall slower · <kbd>S</kbd> while falling = <b>fast fall</b></div>
   <div><b>Dash reset:</b> touch any surface with the <b>middle of one of your edges</b> (not a corner) to get your dash back — other cubes count too, and touching one gives <i>them</i> a free reset</div>
-  <div>Hit <b>enemy cubes</b> during the blue outline to take a heart (practice: the yellow bots)</div>
+  <div>Hit <b>enemy cubes</b> during the blue outline to take a heart. Practice is 3v3 vs bots — <kbd>B</kbd> cycles their skill (off · easy · normal · hard)</div>
   <div><kbd>R</kbd> respawn (practice only) · <kbd>H</kbd> hide this</div>
   <div class="dim" style="margin-top:4px">🎮 Controller: left stick = move + aim · right stick = aim (overrides) · R1 jump/dash · Options reset (practice) · <kbd>F</kbd> fps</div>
 </div>
@@ -81,6 +82,7 @@
 <script src="lib/matter.min.js"></script>
 <script src="lib/peerjs.min.js"></script>
 <script src="js/sim.js"></script>
+<script src="js/bots.js"></script>
 <script src="js/net.js"></script>
 <script src="js/render.js"></script>
 <script src="js/touch.js"></script>

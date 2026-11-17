@@ -13,6 +13,7 @@ A minimalist, physics-based 2D arena game where you are a cube.
 | **Jump** off anything you touch, or **dash** from the void (nothing touched) | `Space` | R1 |
 | Aim a jump or dash | `W` `A` `S` `D` | Either stick (right overrides left) |
 | Reset (practice only) | `R` | Options |
+| Bot skill: off / easy / normal / hard (practice) | `B` or the *Bots* button | |
 | Hide help / show FPS | `H` / `F` | |
 
 **Phone / tablet:** a faint joystick appears on the left (move, steer, aim — like the controller's left stick) and one plain round button on the right (jump / dash). Play in landscape. (Add `?touch=1` to force the touch controls on.)
@@ -48,7 +49,8 @@ test/           node test/sim.test.js · node test/e2e.js (2 headless browsers +
 
 ## Roadmap
 
-- [x] Single-player sandbox (physics, jump/dash, dash reset, hearts, bots, gamepad)
+- [x] Single-player sandbox (physics, jump/dash, dash reset, hearts, gamepad)
+- [x] Practice is a 3v3 vs skill-based bots (lead-aimed strikes, dodging, dash-reset hopping, bunny-hop travel) — `js/bots.js`
 - [x] Host / join matches peer-to-peer (WebRTC) so a match costs no backend calls
 - [ ] Client-side prediction, win condition / rounds, TURN fallback
 - [ ] Accounts, usernames, stats and high scores (Supabase)

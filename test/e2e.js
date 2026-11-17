@@ -37,7 +37,7 @@ const until = async (page, fn, msg, ms = 8000) => { const t = Date.now(); while 
     navigator.getGamepads = () => [window.__pad];
   });
   await host.goto(URL_);
-  ok(await host.evaluate(() => __game.mode === 'solo' && __game.sim.fighters.size === 4), 'solo practice boots with player + 3 bots');
+  ok(await host.evaluate(() => __game.mode === 'solo' && __game.sim.fighters.size === 6), 'solo practice boots as 3v3: player + 2 allies + 3 enemy bots');
   // ── controller mapping (solo practice) ──
   const pad = (axes, btn) => host.evaluate(([a, b]) => { __pad.axes = a; __pad.buttons.forEach((x, i) => { x.pressed = x.value = (i === b ? 1 : 0); }); }, [axes, btn]);
   await sleep(800);
