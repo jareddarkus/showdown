@@ -58,7 +58,18 @@
         L.trees = Array.from({ length: L.n }, (_, i) => ({ x: (i + rnd() * 0.9) / L.n * L.tile, h: L.hMin + rnd() * (L.hMax - L.hMin), w: 0.27 + rnd() * 0.09, tiers: 4 + Math.floor(rnd() * 2) }));
         return L;
       }),
-      trunks: Array.from({ length: 5 }, (_, i) => ({ x: (i + 0.15 + rnd() * 0.7) / 5 * 3600, w: 0.045 + rnd() * 0.05 })),
+      // waterfalls: a rocky cliff with a notch at the top and a sheet of water pouring down it. `layer` = drawn just before that tree layer
+      // (so the trees in front hide where the water meets the ground). f = parallax factor, w/h as fractions of the screen height.
+      falls: [
+        { layer: 0, f: 0.075, x: 1000, w: 0.045, h: 0.52, rock: '#b3cac9', dark: '#9db8b7', water: '#f1fafb', streak: '#cfe9ee' },
+        { layer: 0, f: 0.075, x: 2900, w: 0.040, h: 0.46, rock: '#b3cac9', dark: '#9db8b7', water: '#f1fafb', streak: '#cfe9ee' },
+        { layer: 1, f: 0.15, x: 1900, w: 0.070, h: 0.74, rock: '#7f9e9b', dark: '#668683', water: '#e6f6f8', streak: '#b6dbe3' },
+      ].map(F => {
+        F.steps = Array.from({ length: 6 }, () => rnd());                                  // ragged rock edge
+        F.streaks = Array.from({ length: 22 }, () => ({ x: rnd(), w: 0.05 + rnd() * 0.10, len: 0.10 + rnd() * 0.16, v: 0.50 + rnd() * 0.55, p: rnd(), light: rnd() < 0.62 }));
+        F.spray = Array.from({ length: 9 }, () => ({ x: rnd() - 0.5, p: rnd(), s: 0.6 + rnd() * 0.8 }));
+        return F;
+      }),
       motes: Array.from({ length: 34 }, () => ({ x: rnd(), y: 0.08 + rnd() * 0.78, s: 2 + rnd() * 2.4, p: rnd() * 6.28, f: 0.1 + rnd() * 0.25 })),
     };
   })();
@@ -194,9 +205,13 @@
       }
       haze(floorY - ch * 0.46, floorY - ch * 0.12, 0.50);
 
-      // conifers, far → near. One path (all tiers of all trees) per layer = one fill.
+      // conifers, far → near. One path (all tiers of all trees) per layer = one fill. Waterfalls sit between layers.
       FOREST.trees.forEach((L, li) => {
         const tile = L.tile * sc, off = cam.x * L.f * sc, baseY = floorY + ch * L.base;
+        for (const F of FOREST.falls) if (F.layer === li) {
+          const ft = 3400 * sc, fx = ((((F.x * sc - cam.x * F.f * sc) % ft) + ft) % ft) - ft * 0;
+          for (let x = fx - ft; x < cw + ch; x += ft) if (x > -ch * 0.5) drawFall(F, x, baseY + ch * 0.02, now);
+        }
         ctx.fillStyle = L.col; ctx.beginPath();
         for (const t of L.trees) {
           const h = t.h * ch, w = t.w * h;
@@ -214,16 +229,10 @@
         if (li < 2) haze(baseY - ch * 0.30, baseY + ch * 0.02, 0.34);
       });
 
-      // giant foreground trunks + a soft canopy shadow, very faint so they never fight with gameplay
-      const tr = 3600 * sc, off = cam.x * 0.55 * sc;
-      ctx.fillStyle = 'rgba(24,48,42,.22)';
-      for (const t of FOREST.trunks) {
-        const w = t.w * ch;
-        for (let x = ((((t.x * sc - off) % tr) + tr) % tr) - tr; x < cw + w; x += tr) if (x > -w) ctx.fillRect(x, 0, w, ch);
-      }
-      const can = ctx.createLinearGradient(0, 0, 0, ch * 0.28);
-      can.addColorStop(0, 'rgba(24,48,42,.30)'); can.addColorStop(1, 'rgba(24,48,42,0)');
-      ctx.fillStyle = can; ctx.fillRect(0, 0, cw, ch * 0.28);
+      // a soft canopy shadow along the top edge
+      const can = ctx.createLinearGradient(0, 0, 0, ch * 0.26);
+      can.addColorStop(0, 'rgba(24,48,42,.26)'); can.addColorStop(1, 'rgba(24,48,42,0)');
+      ctx.fillStyle = can; ctx.fillRect(0, 0, cw, ch * 0.26);
 
       // drifting motes (pollen / fireflies) — little squares, like everything else
       for (const m of FOREST.motes) {
@@ -231,6 +240,42 @@
         const y = m.y * ch + Math.cos(now * m.f * 1.3 + m.p) * 16;
         ctx.globalAlpha = 0.30 + 0.30 * Math.sin(now * 1.2 + m.p * 3);
         ctx.fillStyle = '#fffbe0'; ctx.fillRect(x, y, m.s, m.s);
+      }
+      ctx.globalAlpha = 1;
+    }
+    // One waterfall. x = centre, baseY = where it meets the ground. Flat shapes only; the motion is the streaks scrolling down.
+    function drawFall(F, x, baseY, now) {
+      const w = F.w * ch, H_ = F.h * ch, top = baseY - H_;
+      const wt = w * 0.9, wb = w * 1.35;                       // the sheet widens a little as it falls
+      // cliff: a ragged trapezoid with a notch in its top edge where the water spills over
+      const rt = w * 1.7, rb = w * 5.2, st = F.steps;
+      ctx.fillStyle = F.rock; ctx.beginPath();
+      ctx.moveTo(x - rt / 2 - st[0] * w * 0.5, top);
+      for (let i = 1; i <= 4; i++) ctx.lineTo(x - (rt + (rb - rt) * i / 4) / 2 - st[i] * w * 0.6, top + H_ * (i / 4) * (i === 4 ? 1 : 0.98));
+      ctx.lineTo(x + rb / 2 + st[5] * w * 0.6, baseY);
+      for (let i = 3; i >= 0; i--) ctx.lineTo(x + (rt + (rb - rt) * i / 4) / 2 + st[(i + 2) % 6] * w * 0.6, top + H_ * (i / 4));
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = F.dark;                                   // shadowed inner walls beside the water
+      ctx.beginPath(); ctx.moveTo(x - wt / 2 - w * 0.35, top); ctx.lineTo(x - wt / 2, top); ctx.lineTo(x - wb / 2, baseY); ctx.lineTo(x - wb / 2 - w * 0.55, baseY); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(x + wt / 2 + w * 0.35, top); ctx.lineTo(x + wt / 2, top); ctx.lineTo(x + wb / 2, baseY); ctx.lineTo(x + wb / 2 + w * 0.55, baseY); ctx.closePath(); ctx.fill();
+      // water sheet + scrolling streaks (clipped to the sheet)
+      ctx.save();
+      ctx.beginPath(); ctx.moveTo(x - wt / 2, top); ctx.lineTo(x + wt / 2, top); ctx.lineTo(x + wb / 2, baseY); ctx.lineTo(x - wb / 2, baseY); ctx.closePath();
+      ctx.fillStyle = F.water; ctx.fill(); ctx.clip();
+      for (const k of F.streaks) {
+        const len = k.len * ch, y = top + ((((now * k.v * ch * 0.55 + k.p * H_) % (H_ + len)) + (H_ + len)) % (H_ + len)) - len;
+        const sw = k.w * w, sx = x - wb / 2 + k.x * (wb - sw);
+        ctx.globalAlpha = k.light ? 0.9 : 0.55; ctx.fillStyle = k.light ? '#ffffff' : F.streak;
+        ctx.fillRect(sx, y, sw, len);
+      }
+      ctx.restore(); ctx.globalAlpha = 1;
+      ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fillRect(x - wt / 2, top, wt, Math.max(2, ch * 0.004));      // the lip it pours over
+      // foam + spray where it lands
+      ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.fillRect(x - wb * 0.75, baseY - ch * 0.012, wb * 1.5, ch * 0.012);
+      for (const p of F.spray) {
+        const t = ((now * 0.45 + p.p) % 1 + 1) % 1, sz = ch * 0.016 * p.s * (0.5 + t);
+        ctx.globalAlpha = (1 - t) * 0.55; ctx.fillStyle = '#ffffff';
+        ctx.fillRect(x + p.x * wb * 1.7 + Math.sin(now + p.p * 9) * 6, baseY - ch * 0.012 - t * ch * 0.09, sz, sz);
       }
       ctx.globalAlpha = 1;
     }
